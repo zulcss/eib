@@ -25,7 +25,7 @@ pip install .
 
 ## Config
 
-See `eib.yaml.example`:
+See `config.yml`:
 
 ```yaml
 profiles:
@@ -69,14 +69,14 @@ file's own location, not the current directory.
   need their own `dir`).
 
 ```
-./eib.py --config eib.yaml --mkosi-dir /srv/mkosi-sources
+./eib.py --config config.yml --mkosi-dir /srv/mkosi-sources
 ```
 
 `examples/mkosi-dir/profiles/bianca/` is a bundled placeholder profile
-(eLxr Bianca) to try this against, paired with `eib.yaml.example`:
+(eLxr Bianca) to try this against, paired with `config.yml`:
 
 ```
-./eib.py --config eib.yaml.example --mkosi-dir examples/mkosi-dir --dry-run
+./eib.py --config config.yml --mkosi-dir examples/mkosi-dir --dry-run
 ```
 
 ## Usage
@@ -86,7 +86,7 @@ file's own location, not the current directory.
 ```
 
 ```
-./eib.py --config eib.yaml
+./eib.py --config config.yml
 ```
 
 | Flag | Meaning |
@@ -117,8 +117,8 @@ host, and `justfile` wraps the exact `podman run` invocation:
 
 ```
 just image                       # build the eib container image
-just run --config eib.yaml       # assemble the workspace and build
-just run --config eib.yaml --dry-run   # see what would happen first
+just run --config config.yml       # assemble the workspace and build
+just run --config config.yml --dry-run   # see what would happen first
 just clean                       # remove the built image
 ```
 

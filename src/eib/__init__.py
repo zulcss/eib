@@ -79,7 +79,7 @@ def resolve_entries(
 def load_config(path: Path) -> dict:
     """Load and validate the YAML workspace config.
 
-    Expected shape (see eib.yaml.example):
+    Expected shape (see config.yml):
 
         profiles:
           - trixie-bootc             # looked up under --mkosi-dir/profiles

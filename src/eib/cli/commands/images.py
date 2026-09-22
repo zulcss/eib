@@ -30,7 +30,7 @@ def image():
     type=click.Path(path_type=Path),
     required=True,
     help="YAML config listing the profiles and images to assemble "
-    "(see eib.yaml.example)",
+    "(see config.yml)",
 )
 @click.option(
     "--workspace",
