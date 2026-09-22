@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "eib"
+version = "0.1.0"
+description = "Assemble an mkosi build workspace from a list of profile and image directories, then run mkosi to produce an OCI image."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "pyyaml",
+]
+
+[project.scripts]
+eib = "eib:main"
+
+[tool.setuptools]
+py-modules = ["eib"]
