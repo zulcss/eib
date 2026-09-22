@@ -30,9 +30,13 @@ def run(cmd: list[str], *, dry_run: bool, cwd: Path | None = None) -> None:
 
 
 def resolve_entries(
-    entries: list, default_dir: Path | None, base_dir: Path, kind: str
+    entries: list[tuple[object, Path]], default_dir: Path | None, kind: str
 ) -> list[tuple[str, Path]]:
     """Resolve a 'profiles'/'images' list into (dest_name, source_path) pairs.
+
+    Each item is (entry, base_dir): base_dir is the directory of whichever
+    config file (the top-level one, or one pulled in via 'include')
+    contributed that entry, and anchors any relative path in it.
 
     Each entry may be:
       - a plain string naming a profile/image. If default_dir (derived
@@ -44,7 +48,7 @@ def resolve_entries(
         overriding default_dir; 'name' is required and is the dest name.
     """
     resolved: list[tuple[str, Path]] = []
-    for entry in entries:
+    for entry, base_dir in entries:
         if isinstance(entry, str):
             if default_dir is not None:
                 name = entry
@@ -76,24 +80,17 @@ def resolve_entries(
     return resolved
 
 
-def load_config(path: Path) -> dict:
-    """Load and validate the YAML workspace config.
+def _load_config_file(
+    path: Path, seen: frozenset[Path]
+) -> tuple[list[tuple[object, Path]], list[tuple[object, Path]]]:
+    """Recursively load a config file together with any files it 'include's.
 
-    Expected shape (see config.yml):
-
-        profiles:
-          - trixie-bootc             # looked up under --mkosi-dir/profiles
-          - common
-          - name: extra              # or an explicit per-entry source dir
-            dir: /elsewhere/extra
-        images:
-          - initrd
-          - system
-
-    Relative paths (any per-entry 'dir', or a plain entry used as a path
-    when --mkosi-dir isn't given) are resolved relative to the config
-    file's own directory. The raw 'profiles'/'images' lists are returned
-    unresolved; main() resolves them once --mkosi-dir is known.
+    Returns the combined 'profiles'/'images' entries as (entry, base_dir)
+    pairs, base_dir being the directory of whichever file (this one, or an
+    included one) contributed that entry. Included files are loaded
+    depth-first in the order listed, and their entries are placed *before*
+    this file's own, so a file's own profiles/images are appended after
+    (and so take precedence when a name collides, since later copies win).
     """
     try:
         import yaml
@@ -106,22 +103,73 @@ def load_config(path: Path) -> dict:
     if not path.is_file():
         raise EibError(f"config file not found: {path}")
 
+    resolved_path = path.resolve()
+    if resolved_path in seen:
+        raise EibError(f"circular 'include' detected at {path}")
+    seen = seen | {resolved_path}
+
     with path.open() as f:
         data = yaml.safe_load(f) or {}
 
     base_dir = path.parent
 
-    profiles = data.get("profiles") or []
-    images = data.get("images") or []
-    if not isinstance(profiles, list):
+    own_profiles = data.get("profiles") or []
+    own_images = data.get("images") or []
+    includes = data.get("include") or []
+    if not isinstance(own_profiles, list):
         raise EibError(f"{path}: 'profiles' must be a list")
-    if not isinstance(images, list):
+    if not isinstance(own_images, list):
         raise EibError(f"{path}: 'images' must be a list")
+    if not isinstance(includes, list):
+        raise EibError(f"{path}: 'include' must be a list")
+
+    profiles = [(entry, base_dir) for entry in own_profiles]
+    images = [(entry, base_dir) for entry in own_images]
+
+    for include in includes:
+        if not isinstance(include, str):
+            raise EibError(f"{path}: 'include' entries must be strings: {include!r}")
+        include_path = Path(include)
+        if not include_path.is_absolute():
+            include_path = base_dir / include_path
+        included_profiles, included_images = _load_config_file(include_path, seen)
+        profiles = included_profiles + profiles
+        images = included_images + images
+
+    return profiles, images
+
+
+def load_config(path: Path) -> dict:
+    """Load and validate the YAML workspace config.
+
+    Expected shape (see config.yml):
+
+        include:
+          - common.yml                # pull in more profiles/images
+        profiles:
+          - trixie-bootc               # looked up under --mkosi-dir/profiles
+          - common
+          - name: extra                # or an explicit per-entry source dir
+            dir: /elsewhere/extra
+        images:
+          - initrd
+          - system
+
+    'include' lists other config files (same shape, and itself may
+    include further files) whose 'profiles'/'images' are merged in ahead
+    of this file's own entries. Relative paths (an 'include' entry, any
+    per-entry 'dir', or a plain profiles/images entry used as a path when
+    --mkosi-dir isn't given) are resolved relative to the directory of
+    whichever config file they appear in, not necessarily the top-level
+    one. The raw 'profiles'/'images' lists are returned unresolved; main()
+    resolves them once --mkosi-dir is known.
+    """
+    profiles, images = _load_config_file(path, seen=frozenset())
 
     return {
         "profiles_raw": profiles,
         "images_raw": images,
-        "base_dir": base_dir,
+        "base_dir": path.parent,
     }
 
 

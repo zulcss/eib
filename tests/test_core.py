@@ -58,41 +58,53 @@ class TestRun:
 class TestResolveEntries:
     def test_plain_name_with_default_dir(self, tmp_path):
         default_dir = tmp_path / "profiles"
-        resolved = resolve_entries(["trixie-bootc"], default_dir, tmp_path, "profiles")
+        resolved = resolve_entries(
+            [("trixie-bootc", tmp_path)], default_dir, "profiles"
+        )
         assert resolved == [("trixie-bootc", default_dir / "trixie-bootc")]
 
     def test_plain_name_without_default_dir_is_a_path(self, tmp_path):
-        resolved = resolve_entries(["sub/common"], None, tmp_path, "profiles")
+        resolved = resolve_entries([("sub/common", tmp_path)], None, "profiles")
         assert resolved == [("common", tmp_path / "sub" / "common")]
 
     def test_mapping_with_explicit_dir(self, tmp_path):
-        entries = [{"name": "extra", "dir": "elsewhere/extra"}]
-        resolved = resolve_entries(entries, None, tmp_path, "profiles")
+        entries = [({"name": "extra", "dir": "elsewhere/extra"}, tmp_path)]
+        resolved = resolve_entries(entries, None, "profiles")
         assert resolved == [("extra", tmp_path / "elsewhere" / "extra")]
 
     def test_mapping_dir_overrides_default_dir(self, tmp_path):
         default_dir = tmp_path / "profiles"
-        entries = [{"name": "extra", "dir": "/srv/extra"}]
-        resolved = resolve_entries(entries, default_dir, tmp_path, "profiles")
+        entries = [({"name": "extra", "dir": "/srv/extra"}, tmp_path)]
+        resolved = resolve_entries(entries, default_dir, "profiles")
         assert resolved == [("extra", Path("/srv/extra"))]
 
     def test_mapping_falls_back_to_default_dir(self, tmp_path):
         default_dir = tmp_path / "profiles"
-        entries = [{"name": "common"}]
-        resolved = resolve_entries(entries, default_dir, tmp_path, "profiles")
+        entries = [({"name": "common"}, tmp_path)]
+        resolved = resolve_entries(entries, default_dir, "profiles")
         assert resolved == [("common", default_dir / "common")]
 
     def test_mapping_missing_name_raises(self, tmp_path):
         with pytest.raises(EibError, match="missing required 'name'"):
-            resolve_entries([{"dir": "x"}], None, tmp_path, "profiles")
+            resolve_entries([({"dir": "x"}, tmp_path)], None, "profiles")
 
     def test_mapping_without_dir_or_default_raises(self, tmp_path):
         with pytest.raises(EibError, match="no 'dir'"):
-            resolve_entries([{"name": "extra"}], None, tmp_path, "profiles")
+            resolve_entries([({"name": "extra"}, tmp_path)], None, "profiles")
 
     def test_invalid_entry_type_raises(self, tmp_path):
         with pytest.raises(EibError, match="must be a string or mapping"):
-            resolve_entries([123], None, tmp_path, "profiles")
+            resolve_entries([(123, tmp_path)], None, "profiles")
+
+    def test_entries_use_their_own_base_dir(self, tmp_path):
+        other_dir = tmp_path / "other"
+        other_dir.mkdir()
+        entries = [("common", tmp_path), ("sub/extra", other_dir)]
+        resolved = resolve_entries(entries, None, "profiles")
+        assert resolved == [
+            ("common", tmp_path / "common"),
+            ("extra", other_dir / "sub" / "extra"),
+        ]
 
 
 class TestLoadConfig:
@@ -104,8 +116,8 @@ class TestLoadConfig:
         config = tmp_path / "eib.yml"
         config.write_text("profiles:\n  - common\nimages:\n  - initrd\n")
         cfg = load_config(config)
-        assert cfg["profiles_raw"] == ["common"]
-        assert cfg["images_raw"] == ["initrd"]
+        assert cfg["profiles_raw"] == [("common", tmp_path)]
+        assert cfg["images_raw"] == [("initrd", tmp_path)]
         assert cfg["base_dir"] == tmp_path
 
     def test_empty_file_yields_empty_lists(self, tmp_path):
@@ -126,6 +138,71 @@ class TestLoadConfig:
         config.write_text("images: not-a-list\n")
         with pytest.raises(EibError, match="'images' must be a list"):
             load_config(config)
+
+    def test_include_must_be_a_list(self, tmp_path):
+        config = tmp_path / "eib.yml"
+        config.write_text("include: not-a-list\n")
+        with pytest.raises(EibError, match="'include' must be a list"):
+            load_config(config)
+
+    def test_include_entries_must_be_strings(self, tmp_path):
+        config = tmp_path / "eib.yml"
+        config.write_text("include:\n  - 123\n")
+        with pytest.raises(EibError, match="'include' entries must be strings"):
+            load_config(config)
+
+    def test_include_missing_file_raises(self, tmp_path):
+        config = tmp_path / "eib.yml"
+        config.write_text("include:\n  - missing.yml\n")
+        with pytest.raises(EibError, match="config file not found"):
+            load_config(config)
+
+    def test_include_merges_profiles_and_images_ahead_of_own(self, tmp_path):
+        included = tmp_path / "common.yml"
+        included.write_text("profiles:\n  - shared\nimages:\n  - initrd\n")
+        config = tmp_path / "eib.yml"
+        config.write_text(
+            "include:\n  - common.yml\nprofiles:\n  - trixie-bootc\nimages: []\n"
+        )
+        cfg = load_config(config)
+        assert cfg["profiles_raw"] == [
+            ("shared", tmp_path),
+            ("trixie-bootc", tmp_path),
+        ]
+        assert cfg["images_raw"] == [("initrd", tmp_path)]
+
+    def test_include_path_is_relative_to_its_own_file(self, tmp_path):
+        sub_dir = tmp_path / "sub"
+        sub_dir.mkdir()
+        (sub_dir / "extra.yml").write_text(
+            "profiles:\n  - name: extra\n    dir: here\n"
+        )
+        config = tmp_path / "eib.yml"
+        config.write_text("include:\n  - sub/extra.yml\n")
+        cfg = load_config(config)
+        assert cfg["profiles_raw"] == [({"name": "extra", "dir": "here"}, sub_dir)]
+
+    def test_nested_include(self, tmp_path):
+        grandchild = tmp_path / "grandchild.yml"
+        grandchild.write_text("profiles:\n  - base\n")
+        child = tmp_path / "child.yml"
+        child.write_text("include:\n  - grandchild.yml\nprofiles:\n  - mid\n")
+        config = tmp_path / "eib.yml"
+        config.write_text("include:\n  - child.yml\nprofiles:\n  - top\n")
+        cfg = load_config(config)
+        assert cfg["profiles_raw"] == [
+            ("base", tmp_path),
+            ("mid", tmp_path),
+            ("top", tmp_path),
+        ]
+
+    def test_circular_include_raises(self, tmp_path):
+        a = tmp_path / "a.yml"
+        b = tmp_path / "b.yml"
+        a.write_text("include:\n  - b.yml\n")
+        b.write_text("include:\n  - a.yml\n")
+        with pytest.raises(EibError, match="circular 'include'"):
+            load_config(a)
 
 
 class TestCopyInto:

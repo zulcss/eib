@@ -104,12 +104,8 @@ def image_create(
                 )
                 images_dir = None
 
-        profiles = resolve_entries(
-            cfg["profiles_raw"], profiles_dir, cfg["base_dir"], "profiles"
-        )
-        images = resolve_entries(
-            cfg["images_raw"], images_dir, cfg["base_dir"], "images"
-        )
+        profiles = resolve_entries(cfg["profiles_raw"], profiles_dir, "profiles")
+        images = resolve_entries(cfg["images_raw"], images_dir, "images")
 
         workspace = prepare_workspace(workspace, profiles, images, dry_run)
         output_dir = output_dir or (workspace / "mkosi.output")
