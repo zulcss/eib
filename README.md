@@ -91,6 +91,7 @@ file's own location, not the current directory.
 | `-O, --output-dir DIR` | mkosi output directory (default: `<workspace>/mkosi.output`) |
 | `--dry-run` | print what would be copied and run, without doing either |
 | `-v, --verbose` | verbose logging |
+| `--debug` | pass `--debug` to mkosi for more detailed build output |
 
 ## Notes
 
