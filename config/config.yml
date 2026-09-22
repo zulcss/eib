@@ -1,0 +1,21 @@
+# Example eib workspace config.
+#
+# Paths (any per-entry 'dir', or a plain entry used as a path when
+# --mkosi-dir isn't passed) are resolved relative to this file's own
+# directory.
+#
+# This one is runnable as-is against the bundled example profile:
+#   ./eib.py eib.yaml.example --mkosi-dir examples/mkosi-dir --dry-run
+
+# Copied into <workspace>/mkosi.profiles/<name>. A plain string is looked
+# up under --mkosi-dir/profiles (pass --mkosi-dir on the command line); a
+# mapping can point at its own directory instead, overriding that.
+profiles:
+  - bianca                     # see examples/mkosi-dir/profiles/bianca
+  # - name: vendor-extra       # or specify this entry's own source dir
+  #   dir: /srv/shared-mkosi-profiles/vendor-extra
+
+# Copied into <workspace>/mkosi.images/<name>, same rules as profiles,
+# looked up under --mkosi-dir/images. Unlike profiles, this list (and
+# --mkosi-dir/images itself) is entirely optional.
+images: []
