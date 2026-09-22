@@ -118,13 +118,16 @@ def image_create(
             profiles=[name for name, _ in profiles],
             image_name=cfg["image_name"],
             image_version=cfg["image_version"],
+            image_format=cfg["image_format"],
         )
 
         if dry_run:
             log.info("dry run: nothing was built")
-        else:
+        elif cfg["image_format"] == "oci":
             oci_path = find_oci_output(output_dir, since=started)
             log.info("done: built %s", oci_path)
+        else:
+            log.info("done: built %s image in %s", cfg["image_format"], output_dir)
 
     except EibError as exc:
         log.error("error: %s", exc)
