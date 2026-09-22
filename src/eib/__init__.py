@@ -196,6 +196,28 @@ def copy_into(src: Path, dest_dir: Path, name: str, dry_run: bool) -> None:
         shutil.copy2(src, dest)
 
 
+MKOSI_CONF_TEMPLATE = """\
+# Top-level mkosi config for this workspace.
+#
+# Settings here apply to every image under mkosi.images/, layered
+# beneath whatever the selected profile(s) (mkosi.profiles/) provide.
+# See mkosi's docs for the full list of settings:
+# https://github.com/systemd/mkosi/blob/main/mkosi/resources/mkosi.md
+"""
+
+
+def write_mkosi_conf(workspace: Path, dry_run: bool) -> None:
+    """Seed workspace/mkosi.conf with a starter template, unless a config
+    already exists there (so re-running never clobbers local edits)."""
+    conf = workspace / "mkosi.conf"
+    if conf.exists():
+        return
+    log.info("writing %s", conf)
+    if dry_run:
+        return
+    conf.write_text(MKOSI_CONF_TEMPLATE)
+
+
 def prepare_workspace(
     workspace: Path,
     profiles: list[tuple[str, Path]],
@@ -207,6 +229,8 @@ def prepare_workspace(
     log.info("creating workspace %s", workspace)
     if not dry_run:
         workspace.mkdir(parents=True, exist_ok=True)
+
+    write_mkosi_conf(workspace, dry_run)
 
     profiles_dest = workspace / "mkosi.profiles"
     images_dest = workspace / "mkosi.images"
