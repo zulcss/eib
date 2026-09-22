@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "eib"
 version = "0.1.0"
-description = "Assemble an mkosi build workspace from a list of profile and image directories, then run mkosi to produce an OCI image."
+description = "elxr image builder"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
