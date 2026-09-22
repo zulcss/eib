@@ -1,7 +1,7 @@
 # eib
 
 Minimal CLI that assembles an mkosi build workspace from a list of profile
-and image directories, then runs mkosi to produce an OCI image.
+and image directories, then runs mkosi to produce an image (a disk image by default).
 
 Given a YAML config listing profile directories and image directories,
 eib:
@@ -10,14 +10,15 @@ eib:
    `<workspace>/mkosi.conf` (if one isn't already there), then copies
    each listed profile directory into `<workspace>/mkosi.profiles/<name>`
    and each listed image directory into `<workspace>/mkosi.images/<name>`.
-2. **build** &mdash; runs `mkosi ... build` with `Format=oci` in that
-   workspace, producing an OCI image. Each listed profile name is also
+2. **build** &mdash; runs `mkosi ... build` in that workspace,
+   producing a disk image by default (see `image.format`). Each listed profile name is also
    passed to mkosi as `--profile <name>`, so the profile's
    `mkosi.profiles/<name>/` content is actually activated rather than
    just being present on disk. The configured `image.name` and
    `image.version`, if set, are passed as `--image-id` and
    `--image-version`. Without an `image.version`, the UTC build time
    (`YYYYMMDDHHMMSS`, e.g. `20260922164500`) is used as the version.
+   `image.format` (default `disk`) is passed as `--format`.
 
 ## Requirements
 
@@ -46,6 +47,7 @@ images:
 image:
   name: elxr-bianca            # mkosi --image-id
   version: "1.0"               # mkosi --image-version
+  format: disk                 # mkosi --format (default: disk)
 ```
 
 | Key | Meaning |
@@ -53,11 +55,13 @@ image:
 | `include` | list of other config files to merge in first (see below) |
 | `profiles` | list copied to `<workspace>/mkosi.profiles/<name>` (see below) |
 | `images` | list copied to `<workspace>/mkosi.images/<name>` (see below) |
-| `image` | mapping with optional `name` and `version` of the built image, passed to mkosi as `--image-id`/`--image-version` (no `version` &rarr; UTC build timestamp) |
+| `image` | mapping with optional `name`, `version` and `format` of the built image, passed to mkosi as `--image-id`/`--image-version`/`--format` (no `version` &rarr; UTC build timestamp; no `format` &rarr; `disk`) |
 
 `image.version` must be a string (or an integer): quote it, since YAML
-reads an unquoted `1.10` as the number `1.1`. Unknown `image` keys are an
-error.
+reads an unquoted `1.10` as the number `1.1`. `image.format` must be one
+of mkosi's output formats: `addon`, `confext`, `cpio`, `directory`,
+`disk`, `esp`, `none`, `oci`, `portable`, `sysext`, `tar` or `uki`.
+Unknown `image` keys are an error.
 
 Each `profiles`/`images` entry is either:
 
@@ -106,7 +110,7 @@ directory of the file it's written in &mdash; not the top-level config
 of where it's included from.
 
 `image` is merged field by field instead: an included file can set a
-default `name`/`version`, and the including file overrides whichever
+default `name`/`version`/`format`, and the including file overrides whichever
 fields it sets itself.
 
 ## Pointing at a directory of profiles and images
@@ -160,8 +164,8 @@ fields it sets itself.
   so local edits to it survive a re-run).
 - Requires root/`--privileged` in practice: mkosi needs loop devices and
   sandboxing.
-- The OCI artifact is auto-detected in the output directory after the
-  build (an OCI-layout directory or an oci-archive tarball, whichever
+- With `image.format: oci`, the OCI artifact is auto-detected in the
+  output directory after the build (an OCI-layout directory or an oci-archive tarball, whichever
   mkosi just produced).
 
 ## Running in a container

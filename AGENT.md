@@ -4,15 +4,15 @@
 
 `eib` ("elxr image builder") is a minimal Python CLI that assembles an
 mkosi build workspace from a YAML config (lists of profile/image
-directories to copy in), then runs `mkosi ... build` to produce an OCI
-image. See `README.md` for full user-facing docs on the config format
+directories to copy in), then runs `mkosi ... build` to produce an
+image (a disk image by default, or any mkosi format via `image.format`). See `README.md` for full user-facing docs on the config format
 and flags.
 
 ## Layout
 
 - `src/eib/__init__.py` — all core logic (config loading, entry
   resolution, workspace assembly, running mkosi, locating the OCI
-  output). Pure functions, no CLI concerns.
+  output when building OCI). Pure functions, no CLI concerns.
 - `src/eib/cli/commands/shell.py` — root `click` group (`cli`).
 - `src/eib/cli/commands/images.py` — `image build` subcommand; wires CLI
   flags to the core functions in `eib/__init__.py`.

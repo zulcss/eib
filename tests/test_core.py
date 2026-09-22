@@ -219,6 +219,27 @@ class TestLoadConfig:
         cfg = load_config(config)
         assert cfg["image_name"] is None
         assert cfg["image_version"] is None
+        assert cfg["image_format"] == "disk"
+
+    def test_loads_image_format(self, tmp_path):
+        config = tmp_path / "eib.yml"
+        config.write_text("image:\n  format: disk\n")
+        cfg = load_config(config)
+        assert cfg["image_format"] == "disk"
+
+    def test_unsupported_image_format_raises(self, tmp_path):
+        config = tmp_path / "eib.yml"
+        config.write_text("image:\n  format: qcow2\n")
+        with pytest.raises(EibError, match="unsupported 'image.format' 'qcow2'"):
+            load_config(config)
+
+    def test_including_file_overrides_included_image_format(self, tmp_path):
+        common = tmp_path / "common.yml"
+        common.write_text("image:\n  format: tar\n")
+        config = tmp_path / "eib.yml"
+        config.write_text("include:\n  - common.yml\nimage:\n  format: disk\n")
+        cfg = load_config(config)
+        assert cfg["image_format"] == "disk"
 
     def test_integer_image_version_is_accepted(self, tmp_path):
         config = tmp_path / "eib.yml"
@@ -359,7 +380,7 @@ class TestStepBuild:
                     "--output-dir",
                     str(output_dir),
                     "--format",
-                    "oci",
+                    "disk",
                     "build",
                 ],
                 {"dry_run": False},
@@ -410,7 +431,7 @@ class TestStepBuild:
             "--output-dir",
             str(output_dir),
             "--format",
-            "oci",
+            "disk",
             "build",
         ]
 
@@ -445,7 +466,7 @@ class TestStepBuild:
             "--output-dir",
             str(output_dir),
             "--format",
-            "oci",
+            "disk",
             "build",
         ]
 
@@ -466,6 +487,23 @@ class TestStepBuild:
         assert "--auto-bump" not in args
         version = args[args.index("--image-version") + 1]
         assert len(version) == 14 and version.isdigit()
+
+    def test_image_format_is_forwarded(self, tmp_path, monkeypatch):
+        calls = []
+        monkeypatch.setattr(
+            "eib.run", lambda cmd, **kwargs: calls.append((cmd, kwargs))
+        )
+
+        step_build(
+            tmp_path / "workspace",
+            tmp_path / "out",
+            dry_run=True,
+            image_format="oci",
+        )
+
+        args = calls[0][0]
+        assert args[args.index("--format") + 1] == "oci"
+        assert "disk" not in args
 
 
 class TestDefaultImageVersion:
