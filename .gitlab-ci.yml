@@ -1,0 +1,11 @@
+image: python:3.11
+
+stages:
+  - lint
+
+black:
+  stage: lint
+  before_script:
+    - pip install tox
+  script:
+    - tox -e black
