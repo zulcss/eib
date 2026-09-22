@@ -266,6 +266,20 @@ class TestPrepareWorkspace:
         assert (workspace / "mkosi.profiles" / "profile-a").is_dir()
         assert (workspace / "mkosi.images" / "image-a").is_dir()
 
+    def test_writes_mkosi_conf_template(self, tmp_path):
+        workspace = tmp_path / "workspace"
+        prepare_workspace(workspace, [], [], dry_run=False)
+        assert (workspace / "mkosi.conf").is_file()
+
+    def test_does_not_overwrite_existing_mkosi_conf(self, tmp_path):
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        (workspace / "mkosi.conf").write_text("custom")
+
+        prepare_workspace(workspace, [], [], dry_run=False)
+
+        assert (workspace / "mkosi.conf").read_text() == "custom"
+
     def test_dry_run_does_not_create_workspace(self, tmp_path):
         workspace = tmp_path / "workspace"
         prepare_workspace(workspace, [], [], dry_run=True)

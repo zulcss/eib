@@ -6,9 +6,10 @@ and image directories, then runs mkosi to produce an OCI image.
 Given a YAML config listing profile directories and image directories,
 eib:
 
-1. **assemble** &mdash; creates the workspace, then copies each listed
-   profile directory into `<workspace>/mkosi.profiles/<name>` and each
-   listed image directory into `<workspace>/mkosi.images/<name>`.
+1. **assemble** &mdash; creates the workspace, seeds it with a starter
+   `<workspace>/mkosi.conf` (if one isn't already there), then copies
+   each listed profile directory into `<workspace>/mkosi.profiles/<name>`
+   and each listed image directory into `<workspace>/mkosi.images/<name>`.
 2. **build** &mdash; runs `mkosi ... build` with `Format=oci` in that
    workspace, producing an OCI image.
 
@@ -136,7 +137,9 @@ of where it's included from.
 
 - Re-running against an existing workspace replaces each named
   `mkosi.profiles/`/`mkosi.images/` entry rather than erroring or leaving
-  stale copies; anything else already in the workspace is left alone.
+  stale copies; anything else already in the workspace is left alone,
+  including an existing `mkosi.conf` (the template is only written once,
+  so local edits to it survive a re-run).
 - Requires root/`--privileged` in practice: mkosi needs loop devices and
   sandboxing.
 - The OCI artifact is auto-detected in the output directory after the
