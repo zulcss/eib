@@ -23,7 +23,7 @@ default:
 
 # Build the eib container image (mkosi + PyYAML bundled)
 build-container:
-    podman build -t {{ image_name }} -f Containerfile .
+    sudo podman build -t {{ image_name }} -f Containerfile .
 
 # Run eib with arbitrary arguments (e.g. `just build-image image build --config config.yml`)
 build-image *args: build-container

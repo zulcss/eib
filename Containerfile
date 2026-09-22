@@ -67,16 +67,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN pip install --break-system-packages \
         "git+https://gitlab.com/elxr/tools/d2o/mkosi.git@main"
 
-# Debian's skopeo ships no storage.conf, so containers-storage would warn
-# and guess a driver. Use overlay, matching rootful podman's default
-# store that `just import-image` mounts in.
-RUN mkdir -p /etc/containers && printf '%s\n' \
-        '[storage]' \
-        'driver = "overlay"' \
-        'graphroot = "/var/lib/containers/storage"' \
-        'runroot = "/run/containers/storage"' \
-        > /etc/containers/storage.conf
-
 COPY pyproject.toml README.md /src/
 COPY src /src/src
 RUN pip install --break-system-packages --no-build-isolation --no-deps /src \
