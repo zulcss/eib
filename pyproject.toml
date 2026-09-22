@@ -13,8 +13,11 @@ dependencies = [
     "click",
 ]
 
+[tool.setuptools.packages.find]
+where = ["src"]
+
 [project.scripts]
-eib = "eib:main"
+eib = "eib.__main__:main"
 
 [tool.setuptools]
 py-modules = ["eib"]

@@ -1,22 +1,3 @@
-#!/usr/bin/env python3
-"""eib: assemble an mkosi build workspace from a list of profile and image
-directories, then run mkosi to produce an OCI image.
-
-Given a YAML config listing:
-
-    - a set of mkosi profile directories (copied into
-      <workspace>/mkosi.profiles/<name>)
-    - a set of mkosi image directories (copied into
-      <workspace>/mkosi.images/<name>)
-
-eib assembles a clean workspace directory from those pieces and runs
-`mkosi build` in it to produce an OCI image. --mkosi-dir optionally
-points at a directory with 'profiles' and 'images' subdirectories to use
-as the default source for plain-name profiles/images entries.
-
-Requires mkosi (and PyYAML) to already be installed and on PATH.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -239,8 +220,7 @@ def find_oci_output(output_dir: Path, since: float) -> Path:
 
 @click.command(
     context_settings={"help_option_names": ["-h", "--help"]},
-    help="Assemble an mkosi workspace from a list of profile and image "
-    "directories, then build an OCI image from it.",
+    help="eib image builder",
 )
 @click.option(
     "--config", type=click.Path(path_type=Path), required=True,
@@ -274,7 +254,7 @@ def find_oci_output(output_dir: Path, since: float) -> Path:
     "--debug", is_flag=True,
     help="pass --debug to mkosi for more detailed build output",
 )
-def main(
+def image(
     config: Path,
     workspace: Path,
     mkosi_dir: Path | None,
@@ -332,7 +312,3 @@ def main(
     except KeyboardInterrupt:
         log.error("interrupted")
         raise SystemExit(130) from None
-
-
-if __name__ == "__main__":
-    main()
