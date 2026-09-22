@@ -2,6 +2,7 @@ image: python:3.11
 
 stages:
   - lint
+  - test
 
 black:
   stage: lint
@@ -9,3 +10,17 @@ black:
     - pip install tox
   script:
     - tox -e black
+
+pyflakes:
+  stage: lint
+  before_script:
+    - pip install tox
+  script:
+    - tox -e pyflakes
+
+test:
+  stage: test
+  before_script:
+    - pip install tox
+  script:
+    - tox -e test
