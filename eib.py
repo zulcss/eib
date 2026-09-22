@@ -193,13 +193,13 @@ def prepare_workspace(
     return workspace
 
 
-def step_build(workspace: Path, output_dir: Path, dry_run: bool) -> None:
+def step_build(workspace: Path, output_dir: Path, dry_run: bool, debug: bool = False) -> None:
     """Run mkosi in the workspace to produce an OCI image."""
     output_dir.mkdir(parents=True, exist_ok=True) if not dry_run else None
-    cmd = [
-        "mkosi", "--directory", str(workspace),
-        "--output-dir", str(output_dir), "--format", "oci", "build",
-    ]
+    cmd = ["mkosi", "--directory", str(workspace)]
+    if debug:
+        cmd.append("--debug")
+    cmd += ["--output-dir", str(output_dir), "--format", "oci", "build"]
     run(cmd, dry_run=dry_run)
 
 
@@ -270,6 +270,10 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "-v", "--verbose", action="store_true", help="verbose logging",
     )
+    parser.add_argument(
+        "--debug", action="store_true",
+        help="pass --debug to mkosi for more detailed build output",
+    )
     return parser.parse_args(argv)
 
 
@@ -310,7 +314,7 @@ def main(argv: list[str] | None = None) -> int:
         output_dir = args.output_dir or (workspace / "mkosi.output")
 
         started = time.time()
-        step_build(workspace, output_dir, args.dry_run)
+        step_build(workspace, output_dir, args.dry_run, debug=args.debug)
 
         if args.dry_run:
             log.info("dry run: nothing was built")
