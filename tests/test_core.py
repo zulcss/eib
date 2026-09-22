@@ -20,6 +20,7 @@ from eib import (
     resolve_entries,
     run,
     step_build,
+    step_import,
 )
 
 
@@ -273,6 +274,44 @@ class TestLoadConfig:
         cfg = load_config(config)
         assert cfg["image_name"] == "base"
         assert cfg["image_version"] == "2.0"
+
+    def test_loads_container_tag(self, tmp_path):
+        config = tmp_path / "eib.yml"
+        config.write_text("container:\n  tag: elxr-bianca:latest\n")
+        cfg = load_config(config)
+        assert cfg["container_tag"] == "elxr-bianca:latest"
+
+    def test_container_is_optional(self, tmp_path):
+        config = tmp_path / "eib.yml"
+        config.write_text("profiles: []\n")
+        cfg = load_config(config)
+        assert cfg["container_tag"] is None
+
+    def test_non_mapping_container_raises(self, tmp_path):
+        config = tmp_path / "eib.yml"
+        config.write_text("container: elxr\n")
+        with pytest.raises(EibError, match="'container' must be a mapping"):
+            load_config(config)
+
+    def test_unknown_container_key_raises(self, tmp_path):
+        config = tmp_path / "eib.yml"
+        config.write_text("container:\n  tga: latest\n")
+        with pytest.raises(EibError, match="unknown 'container' key 'tga'"):
+            load_config(config)
+
+    def test_float_container_tag_raises(self, tmp_path):
+        config = tmp_path / "eib.yml"
+        config.write_text("container:\n  tag: 1.10\n")
+        with pytest.raises(EibError, match="'container.tag' must be a string"):
+            load_config(config)
+
+    def test_including_file_overrides_included_container_tag(self, tmp_path):
+        common = tmp_path / "common.yml"
+        common.write_text("container:\n  tag: base\n")
+        config = tmp_path / "eib.yml"
+        config.write_text("include:\n  - common.yml\ncontainer:\n  tag: mine\n")
+        cfg = load_config(config)
+        assert cfg["container_tag"] == "mine"
 
 
 class TestCopyInto:
@@ -561,3 +600,66 @@ class TestFindOciOutput:
 
         found = find_oci_output(tmp_path, since=now - 100)
         assert found == newer
+
+
+class TestStepImport:
+    def test_imports_oci_layout_directory(self, tmp_path, monkeypatch):
+        calls = []
+        monkeypatch.setattr(
+            "eib.run", lambda cmd, **kwargs: calls.append((cmd, kwargs))
+        )
+        oci_dir = tmp_path / "image.oci"
+        oci_dir.mkdir()
+
+        step_import(oci_dir, "elxr-bianca:latest", dry_run=False)
+
+        assert calls == [
+            (
+                [
+                    "skopeo",
+                    "copy",
+                    f"oci:{oci_dir}",
+                    "containers-storage:localhost/elxr-bianca:latest",
+                ],
+                {"dry_run": False},
+            )
+        ]
+
+    def test_imports_oci_archive(self, tmp_path, monkeypatch):
+        calls = []
+        monkeypatch.setattr(
+            "eib.run", lambda cmd, **kwargs: calls.append((cmd, kwargs))
+        )
+        archive = tmp_path / "image.tar"
+        archive.write_text("data")
+
+        step_import(archive, "elxr-bianca:latest", dry_run=True)
+
+        args = calls[0][0]
+        assert args[2] == f"oci-archive:{archive}"
+        assert calls[0][1] == {"dry_run": True}
+
+    @pytest.mark.parametrize(
+        "tag, stored",
+        [
+            ("elxr-bianca:latest", "localhost/elxr-bianca:latest"),
+            ("elxr/bianca:1.0", "localhost/elxr/bianca:1.0"),
+            ("localhost/elxr-bianca", "localhost/elxr-bianca"),
+            (
+                "registry.example.com/elxr/bianca:1.0",
+                "registry.example.com/elxr/bianca:1.0",
+            ),
+            ("registry:5000/bianca", "registry:5000/bianca"),
+        ],
+    )
+    def test_tag_without_registry_goes_under_localhost(
+        self, tmp_path, monkeypatch, tag, stored
+    ):
+        calls = []
+        monkeypatch.setattr(
+            "eib.run", lambda cmd, **kwargs: calls.append((cmd, kwargs))
+        )
+
+        step_import(tmp_path, tag, dry_run=True)
+
+        assert calls[0][0][-1] == f"containers-storage:{stored}"

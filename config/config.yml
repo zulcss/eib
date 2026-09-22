@@ -41,3 +41,9 @@ image:
   name: elxr-bianca
   version: "1.0"
   format: disk
+
+# Tag that `eib image import` gives the built OCI image in local
+# container storage. Optional; quote it if YAML would otherwise read it
+# as a number.
+container:
+  tag: elxr-bianca:latest
