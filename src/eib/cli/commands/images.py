@@ -117,7 +117,6 @@ def image_create(
             dry_run,
             debug=debug,
             profiles=[name for name, _ in profiles],
-            images=[name for name, _ in images],
         )
 
         if dry_run:

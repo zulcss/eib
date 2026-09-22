@@ -249,7 +249,6 @@ def step_build(
     dry_run: bool,
     debug: bool = False,
     profiles: list[str] | None = None,
-    images: list[str] | None = None,
 ) -> None:
     """Run mkosi in the workspace to produce an OCI image."""
     output_dir.mkdir(parents=True, exist_ok=True) if not dry_run else None
@@ -258,8 +257,6 @@ def step_build(
         cmd.append("--debug")
     for name in profiles or []:
         cmd += ["--profile", name]
-    for name in images or []:
-        cmd += ["--image", name]
     cmd += ["--output-dir", str(output_dir), "--format", "oci", "build"]
     run(cmd, dry_run=dry_run)
 

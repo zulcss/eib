@@ -14,9 +14,7 @@ eib:
    workspace, producing an OCI image. Each listed profile name is also
    passed to mkosi as `--profile <name>`, so the profile's
    `mkosi.profiles/<name>/` content is actually activated rather than
-   just being present on disk. Each listed image name is likewise passed
-   as `--image <name>`, restricting the build to those images rather
-   than every image under `mkosi.images/`.
+   just being present on disk.
 
 ## Requirements
 
