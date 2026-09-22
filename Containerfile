@@ -4,7 +4,7 @@
 # https://elxr.org), matching the "bianca" profile eib itself targets.
 # Bundles mkosi plus PyYAML, which eib needs to parse the workspace
 # config. That's the whole pipeline now: assemble a workspace, then
-# `mkosi build`.
+# `mkosi build`. skopeo is included too, for `eib image import`.
 #
 # Rather than apt's mkosi package (which lags upstream), mkosi is
 # installed via pip straight from the eLxr fork's git repository, per
@@ -61,10 +61,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         efitools \
         openssl \
         jq \
+        skopeo \
     && rm -rf /var/lib/apt/lists/*
 
 RUN pip install --break-system-packages \
         "git+https://gitlab.com/elxr/tools/d2o/mkosi.git@main"
+
+# Debian's skopeo ships no storage.conf, so containers-storage would warn
+# and guess a driver. Use overlay, matching rootful podman's default
+# store that `just import-image` mounts in.
+RUN mkdir -p /etc/containers && printf '%s\n' \
+        '[storage]' \
+        'driver = "overlay"' \
+        'graphroot = "/var/lib/containers/storage"' \
+        'runroot = "/run/containers/storage"' \
+        > /etc/containers/storage.conf
 
 COPY pyproject.toml README.md /src/
 COPY src /src/src

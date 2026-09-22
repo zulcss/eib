@@ -48,6 +48,8 @@ image:
   name: elxr-bianca            # mkosi --image-id
   version: "1.0"               # mkosi --image-version
   format: disk                 # mkosi --format (default: disk)
+container:
+  tag: elxr-bianca:latest      # container image tag
 ```
 
 | Key | Meaning |
@@ -56,12 +58,14 @@ image:
 | `profiles` | list copied to `<workspace>/mkosi.profiles/<name>` (see below) |
 | `images` | list copied to `<workspace>/mkosi.images/<name>` (see below) |
 | `image` | mapping with optional `name`, `version` and `format` of the built image, passed to mkosi as `--image-id`/`--image-version`/`--format` (no `version` &rarr; UTC build timestamp; no `format` &rarr; `disk`) |
+| `container` | mapping with an optional `tag`, used by `eib image import` as the imported image's name |
 
 `image.version` must be a string (or an integer): quote it, since YAML
 reads an unquoted `1.10` as the number `1.1`. `image.format` must be one
 of mkosi's output formats: `addon`, `confext`, `cpio`, `directory`,
 `disk`, `esp`, `none`, `oci`, `portable`, `sysext`, `tar` or `uki`.
-Unknown `image` keys are an error.
+Unknown `image` keys are an error. Likewise, `container.tag` must be a
+string, and unknown `container` keys are an error.
 
 Each `profiles`/`images` entry is either:
 
@@ -111,7 +115,7 @@ of where it's included from.
 
 `image` is merged field by field instead: an included file can set a
 default `name`/`version`/`format`, and the including file overrides whichever
-fields it sets itself.
+fields it sets itself. `container` is merged the same way.
 
 ## Pointing at a directory of profiles and images
 
@@ -155,6 +159,36 @@ fields it sets itself.
 | `-v, --verbose` | verbose logging |
 | `--debug` | pass `--debug` to mkosi for more detailed build output |
 
+## Importing an OCI image
+
+After building with `image.format: oci`, `eib image import` copies the
+most recently built OCI image from the output directory into local
+container storage, so podman can run it:
+
+```
+eib image build --config config.yml
+eib image import --config config.yml
+podman run --rm -it elxr-bianca:latest
+```
+
+It runs `skopeo copy oci:<image> containers-storage:<tag>` (or
+`oci-archive:` for a tarball), with the tag taken from `container.tag`. It fails
+unless the config sets `image.format: oci`.
+A tag without a registry (e.g. `elxr-bianca:latest`) is stored as
+`localhost/elxr-bianca:latest`, as `podman build` would.
+
+| Flag | Meaning |
+|---|---|
+| `--config FILE` | YAML config giving `container.tag` (required) |
+| `--workspace DIR` | directory the image was built in (default: `/var/tmp/build/eib-workspace`) |
+| `-O, --output-dir DIR` | mkosi output directory (default: `<workspace>/mkosi.output`) |
+| `--tag TAG` | tag to import as, overriding `container.tag` |
+| `--dry-run` | print the `skopeo` command without running it |
+| `-v, --verbose` | verbose logging |
+
+Run it on the host (which needs `skopeo`), or through the container
+with `just import-image`, which mounts the host's image store into it.
+
 ## Notes
 
 - Re-running against an existing workspace replaces each named
@@ -177,8 +211,16 @@ host, and `justfile` wraps the exact `podman run` invocation:
 just image                       # build the eib container image
 just run --config config.yml       # assemble the workspace and build
 just run --config config.yml --dry-run   # see what would happen first
+just import-image --config config.yml    # import the built OCI image into podman
 just clean                       # remove the built image
 ```
 
 The container needs `--privileged` and the project directory bind-mounted
-at `/workspace` (the `run` recipe does this).
+at `/workspace` (the recipes do this). The recipes also mount the host's
+`/var/tmp/build` at the same path, so the default `--workspace` and its
+build output persist between runs and `import-image` finds what
+`build-image` built.
+
+The recipes need rootful podman (run them as root). `import-image`
+mounts the host's image store, `/var/lib/containers/storage`, so the
+imported image shows up in `podman images`.
