@@ -100,20 +100,50 @@ MKOSI_FORMATS = (
 )
 DEFAULT_IMAGE_FORMAT = "disk"
 
+CONTAINER_KEYS = ("tag",)
 
-def _load_config_file(
-    path: Path, seen: frozenset[Path]
-) -> tuple[list[tuple[object, Path]], list[tuple[object, Path]], dict[str, str]]:
+
+def _validate_section(
+    path: Path, section: str, data: object, keys: tuple[str, ...]
+) -> dict:
+    """Check that a config file's 'image'/'container' mapping has only
+    known keys, each with a string (or integer) value."""
+    if not isinstance(data, dict):
+        raise EibError(f"{path}: '{section}' must be a mapping")
+    for key, value in data.items():
+        if key not in keys:
+            raise EibError(
+                f"{path}: unknown '{section}' key {key!r} "
+                f"(expected one of: {', '.join(keys)})"
+            )
+        # YAML reads e.g. 1.10 as the float 1.1, so only accept values
+        # that round-trip exactly; anything else must be quoted.
+        if not isinstance(value, (str, int)) or isinstance(value, bool):
+            raise EibError(
+                f"{path}: '{section}.{key}' must be a string "
+                f"(quote it in the YAML): {value!r}"
+            )
+    return data
+
+
+def _load_config_file(path: Path, seen: frozenset[Path]) -> tuple[
+    list[tuple[object, Path]],
+    list[tuple[object, Path]],
+    dict[str, str],
+    dict[str, str],
+]:
     """Recursively load a config file together with any files it 'include's.
 
     Returns the combined 'profiles'/'images' entries as (entry, base_dir)
     pairs, base_dir being the directory of whichever file (this one, or an
-    included one) contributed that entry, plus the merged 'image' settings.
+    included one) contributed that entry, plus the merged 'image' and
+    'container' settings.
     Included files are loaded depth-first in the order listed, and their
     entries are placed *before* this file's own, so a file's own
     profiles/images are appended after (and so take precedence when a
     name collides, since later copies win). Likewise, each 'image' field
-    this file sets overrides the same field from any included file.
+    and 'container' field this file sets overrides the same field from
+    any included file.
     """
     try:
         import yaml
@@ -139,37 +169,26 @@ def _load_config_file(
     own_profiles = data.get("profiles") or []
     own_images = data.get("images") or []
     includes = data.get("include") or []
-    own_image = data.get("image") or {}
+    own_image = _validate_section(path, "image", data.get("image") or {}, IMAGE_KEYS)
+    own_container = _validate_section(
+        path, "container", data.get("container") or {}, CONTAINER_KEYS
+    )
     if not isinstance(own_profiles, list):
         raise EibError(f"{path}: 'profiles' must be a list")
     if not isinstance(own_images, list):
         raise EibError(f"{path}: 'images' must be a list")
     if not isinstance(includes, list):
         raise EibError(f"{path}: 'include' must be a list")
-    if not isinstance(own_image, dict):
-        raise EibError(f"{path}: 'image' must be a mapping")
-    for key, value in own_image.items():
-        if key not in IMAGE_KEYS:
-            raise EibError(
-                f"{path}: unknown 'image' key {key!r} "
-                f"(expected one of: {', '.join(IMAGE_KEYS)})"
-            )
-        # YAML reads e.g. 1.10 as the float 1.1, so only accept values
-        # that round-trip exactly; anything else must be quoted.
-        if not isinstance(value, (str, int)) or isinstance(value, bool):
-            raise EibError(
-                f"{path}: 'image.{key}' must be a string "
-                f"(quote it in the YAML): {value!r}"
-            )
-        if key == "format" and value not in MKOSI_FORMATS:
-            raise EibError(
-                f"{path}: unsupported 'image.format' {value!r} "
-                f"(expected one of: {', '.join(MKOSI_FORMATS)})"
-            )
+    if "format" in own_image and own_image["format"] not in MKOSI_FORMATS:
+        raise EibError(
+            f"{path}: unsupported 'image.format' {own_image['format']!r} "
+            f"(expected one of: {', '.join(MKOSI_FORMATS)})"
+        )
 
     profiles = [(entry, base_dir) for entry in own_profiles]
     images = [(entry, base_dir) for entry in own_images]
     image: dict[str, str] = {}
+    container: dict[str, str] = {}
 
     for include in includes:
         if not isinstance(include, str):
@@ -177,16 +196,21 @@ def _load_config_file(
         include_path = Path(include)
         if not include_path.is_absolute():
             include_path = base_dir / include_path
-        included_profiles, included_images, included_image = _load_config_file(
-            include_path, seen
-        )
+        (
+            included_profiles,
+            included_images,
+            included_image,
+            included_container,
+        ) = _load_config_file(include_path, seen)
         profiles = included_profiles + profiles
         images = included_images + images
         image.update(included_image)
+        container.update(included_container)
 
     image.update({key: str(value) for key, value in own_image.items()})
+    container.update({key: str(value) for key, value in own_container.items()})
 
-    return profiles, images, image
+    return profiles, images, image, container
 
 
 def load_config(path: Path) -> dict:
@@ -210,6 +234,8 @@ def load_config(path: Path) -> dict:
                                        # (omit to use a build timestamp)
           format: disk                 # passed to mkosi as --format
                                        # (default: disk)
+        container:
+          tag: elxr-bianca:latest      # container image tag
 
     'include' lists other config files (same shape, and itself may
     include further files) whose 'profiles'/'images' are merged in ahead
@@ -221,9 +247,9 @@ def load_config(path: Path) -> dict:
     resolves them once --mkosi-dir is known. 'image' (all keys optional)
     names, versions and sets the output format of the built image; a field
     set in the including file overrides the same field from an included
-    one.
+    one. 'container' (its 'tag' optional) is merged the same way.
     """
-    profiles, images, image = _load_config_file(path, seen=frozenset())
+    profiles, images, image, container = _load_config_file(path, seen=frozenset())
 
     return {
         "profiles_raw": profiles,
@@ -231,6 +257,7 @@ def load_config(path: Path) -> dict:
         "image_name": image.get("name"),
         "image_version": image.get("version"),
         "image_format": image.get("format", DEFAULT_IMAGE_FORMAT),
+        "container_tag": container.get("tag"),
         "base_dir": path.parent,
     }
 
@@ -378,3 +405,24 @@ def find_oci_output(output_dir: Path, since: float) -> Path:
 
     candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
     return candidates[0]
+
+
+def step_import(oci_path: Path, tag: str, dry_run: bool) -> None:
+    """Copy an OCI image (an OCI-layout directory or an oci-archive
+    tarball, as found by find_oci_output) into local container storage
+    as tag, so podman can run it.
+
+    A tag without a registry (e.g. elxr-bianca:latest) is stored as
+    localhost/<tag>, matching what 'podman build' does; skopeo would
+    otherwise file it under docker.io/library/.
+    """
+    registry = tag.split("/")[0]
+    if "/" not in tag or not (
+        "." in registry or ":" in registry or registry == "localhost"
+    ):
+        tag = f"localhost/{tag}"
+    transport = "oci" if oci_path.is_dir() else "oci-archive"
+    run(
+        ["skopeo", "copy", f"{transport}:{oci_path}", f"containers-storage:{tag}"],
+        dry_run=dry_run,
+    )

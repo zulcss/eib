@@ -4,7 +4,7 @@
 # https://elxr.org), matching the "bianca" profile eib itself targets.
 # Bundles mkosi plus PyYAML, which eib needs to parse the workspace
 # config. That's the whole pipeline now: assemble a workspace, then
-# `mkosi build`.
+# `mkosi build`. skopeo is included too, for `eib image import`.
 #
 # Rather than apt's mkosi package (which lags upstream), mkosi is
 # installed via pip straight from the eLxr fork's git repository, per
@@ -61,6 +61,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         efitools \
         openssl \
         jq \
+        skopeo \
     && rm -rf /var/lib/apt/lists/*
 
 RUN pip install --break-system-packages \
