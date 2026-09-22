@@ -14,7 +14,10 @@ eib:
    workspace, producing an OCI image. Each listed profile name is also
    passed to mkosi as `--profile <name>`, so the profile's
    `mkosi.profiles/<name>/` content is actually activated rather than
-   just being present on disk.
+   just being present on disk. The configured `image.name` and
+   `image.version`, if set, are passed as `--image-id` and
+   `--image-version`. Without an `image.version`, the UTC build time
+   (`YYYYMMDDHHMMSS`, e.g. `20260922164500`) is used as the version.
 
 ## Requirements
 
@@ -40,6 +43,9 @@ profiles:
 images:
   - initrd
   - system
+image:
+  name: elxr-bianca            # mkosi --image-id
+  version: "1.0"               # mkosi --image-version
 ```
 
 | Key | Meaning |
@@ -47,6 +53,11 @@ images:
 | `include` | list of other config files to merge in first (see below) |
 | `profiles` | list copied to `<workspace>/mkosi.profiles/<name>` (see below) |
 | `images` | list copied to `<workspace>/mkosi.images/<name>` (see below) |
+| `image` | mapping with optional `name` and `version` of the built image, passed to mkosi as `--image-id`/`--image-version` (no `version` &rarr; UTC build timestamp) |
+
+`image.version` must be a string (or an integer): quote it, since YAML
+reads an unquoted `1.10` as the number `1.1`. Unknown `image` keys are an
+error.
 
 Each `profiles`/`images` entry is either:
 
@@ -93,6 +104,10 @@ Each `include` path, like any relative `dir`, resolves against the
 directory of the file it's written in &mdash; not the top-level config
 &mdash; so an included file's own relative paths keep working regardless
 of where it's included from.
+
+`image` is merged field by field instead: an included file can set a
+default `name`/`version`, and the including file overrides whichever
+fields it sets itself.
 
 ## Pointing at a directory of profiles and images
 

@@ -29,8 +29,7 @@ def image():
     "--config",
     type=click.Path(path_type=Path),
     required=True,
-    help="YAML config listing the profiles and images to assemble "
-    "(see config.yml)",
+    help="YAML config listing the profiles and images to assemble " "(see config.yml)",
 )
 @click.option(
     "--workspace",
@@ -117,6 +116,8 @@ def image_create(
             dry_run,
             debug=debug,
             profiles=[name for name, _ in profiles],
+            image_name=cfg["image_name"],
+            image_version=cfg["image_version"],
         )
 
         if dry_run:
