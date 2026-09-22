@@ -1,32 +1,13 @@
-#!/usr/bin/env python3
-"""eib: assemble an mkosi build workspace from a list of profile and image
-directories, then run mkosi to produce an OCI image.
-
-Given a YAML config listing:
-
-    - a set of mkosi profile directories (copied into
-      <workspace>/mkosi.profiles/<name>)
-    - a set of mkosi image directories (copied into
-      <workspace>/mkosi.images/<name>)
-
-eib assembles a clean workspace directory from those pieces and runs
-`mkosi build` in it to produce an OCI image. --mkosi-dir optionally
-points at a directory with 'profiles' and 'images' subdirectories to use
-as the default source for plain-name profiles/images entries.
-
-Requires mkosi (and PyYAML) to already be installed and on PATH.
-"""
-
 from __future__ import annotations
 
-import argparse
 import logging
 import shlex
 import shutil
 import subprocess
-import sys
 import time
 from pathlib import Path
+
+import click
 
 log = logging.getLogger("eib")
 
@@ -237,64 +218,67 @@ def find_oci_output(output_dir: Path, since: float) -> Path:
     return candidates[0]
 
 
-def parse_args(argv: list[str]) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Assemble an mkosi workspace from a list of profile "
-        "and image directories, then build an OCI image from it.",
-    )
-    parser.add_argument(
-        "--config", type=Path, required=True,
-        help="YAML config listing the profiles and images to assemble "
-        "(see eib.yaml.example)",
-    )
-    parser.add_argument(
-        "--workspace", type=Path, default=Path("/var/tmp/build/eib-workspace"),
-        help="directory to assemble and build in "
-        "(default: /var/tmp/build/eib-workspace)",
-    )
-    parser.add_argument(
-        "--mkosi-dir", type=Path, default=None,
-        help="directory with 'profiles' and 'images' subdirectories, used "
-        "as the default source for plain-name profiles/images config "
-        "entries. 'profiles' is required if this is given; 'images' is "
-        "optional.",
-    )
-    parser.add_argument(
-        "-O", "--output-dir", type=Path, default=None,
-        help="mkosi output directory (default: <workspace>/mkosi.output)",
-    )
-    parser.add_argument(
-        "--dry-run", action="store_true",
-        help="print what would be copied and run, without doing either",
-    )
-    parser.add_argument(
-        "-v", "--verbose", action="store_true", help="verbose logging",
-    )
-    parser.add_argument(
-        "--debug", action="store_true",
-        help="pass --debug to mkosi for more detailed build output",
-    )
-    return parser.parse_args(argv)
-
-
-def main(argv: list[str] | None = None) -> int:
-    args = parse_args(argv if argv is not None else sys.argv[1:])
+@click.command(
+    context_settings={"help_option_names": ["-h", "--help"]},
+    help="eib image builder",
+)
+@click.option(
+    "--config", type=click.Path(path_type=Path), required=True,
+    help="YAML config listing the profiles and images to assemble "
+    "(see eib.yaml.example)",
+)
+@click.option(
+    "--workspace", type=click.Path(path_type=Path),
+    default=Path("/var/tmp/build/eib-workspace"), show_default=True,
+    help="directory to assemble and build in",
+)
+@click.option(
+    "--mkosi-dir", type=click.Path(path_type=Path), default=None,
+    help="directory with 'profiles' and 'images' subdirectories, used "
+    "as the default source for plain-name profiles/images config "
+    "entries. 'profiles' is required if this is given; 'images' is "
+    "optional.",
+)
+@click.option(
+    "-O", "--output-dir", type=click.Path(path_type=Path), default=None,
+    help="mkosi output directory (default: <workspace>/mkosi.output)",
+)
+@click.option(
+    "--dry-run", is_flag=True,
+    help="print what would be copied and run, without doing either",
+)
+@click.option(
+    "-v", "--verbose", is_flag=True, help="verbose logging",
+)
+@click.option(
+    "--debug", is_flag=True,
+    help="pass --debug to mkosi for more detailed build output",
+)
+def image(
+    config: Path,
+    workspace: Path,
+    mkosi_dir: Path | None,
+    output_dir: Path | None,
+    dry_run: bool,
+    verbose: bool,
+    debug: bool,
+) -> None:
     logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
+        level=logging.DEBUG if verbose else logging.INFO,
         format="%(message)s",
     )
 
     try:
-        cfg = load_config(args.config)
+        cfg = load_config(config)
 
         profiles_dir = images_dir = None
-        if args.mkosi_dir is not None:
-            profiles_dir = args.mkosi_dir / "profiles"
+        if mkosi_dir is not None:
+            profiles_dir = mkosi_dir / "profiles"
             if not profiles_dir.is_dir():
                 raise EibError(
                     f"'profiles' directory not found under --mkosi-dir: {profiles_dir}"
                 )
-            images_dir = args.mkosi_dir / "images"
+            images_dir = mkosi_dir / "images"
             if not images_dir.is_dir():
                 log.info(
                     "no 'images' directory under --mkosi-dir (%s); "
@@ -310,13 +294,13 @@ def main(argv: list[str] | None = None) -> int:
             cfg["images_raw"], images_dir, cfg["base_dir"], "images"
         )
 
-        workspace = prepare_workspace(args.workspace, profiles, images, args.dry_run)
-        output_dir = args.output_dir or (workspace / "mkosi.output")
+        workspace = prepare_workspace(workspace, profiles, images, dry_run)
+        output_dir = output_dir or (workspace / "mkosi.output")
 
         started = time.time()
-        step_build(workspace, output_dir, args.dry_run, debug=args.debug)
+        step_build(workspace, output_dir, dry_run, debug=debug)
 
-        if args.dry_run:
+        if dry_run:
             log.info("dry run: nothing was built")
         else:
             oci_path = find_oci_output(output_dir, since=started)
@@ -324,13 +308,7 @@ def main(argv: list[str] | None = None) -> int:
 
     except EibError as exc:
         log.error("error: %s", exc)
-        return 1
+        raise SystemExit(1) from exc
     except KeyboardInterrupt:
         log.error("interrupted")
-        return 130
-
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+        raise SystemExit(130) from None
