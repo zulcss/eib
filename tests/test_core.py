@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import subprocess
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,7 @@ import pytest
 from eib import (
     EibError,
     copy_into,
+    default_image_version,
     find_oci_output,
     load_config,
     prepare_workspace,
@@ -204,6 +206,53 @@ class TestLoadConfig:
         with pytest.raises(EibError, match="circular 'include'"):
             load_config(a)
 
+    def test_loads_image_name_and_version(self, tmp_path):
+        config = tmp_path / "eib.yml"
+        config.write_text("image:\n  name: elxr-bianca\n  version: '1.10'\n")
+        cfg = load_config(config)
+        assert cfg["image_name"] == "elxr-bianca"
+        assert cfg["image_version"] == "1.10"
+
+    def test_image_is_optional(self, tmp_path):
+        config = tmp_path / "eib.yml"
+        config.write_text("profiles:\n  - common\n")
+        cfg = load_config(config)
+        assert cfg["image_name"] is None
+        assert cfg["image_version"] is None
+
+    def test_integer_image_version_is_accepted(self, tmp_path):
+        config = tmp_path / "eib.yml"
+        config.write_text("image:\n  version: 2\n")
+        cfg = load_config(config)
+        assert cfg["image_version"] == "2"
+
+    def test_float_image_version_raises(self, tmp_path):
+        config = tmp_path / "eib.yml"
+        config.write_text("image:\n  version: 1.10\n")
+        with pytest.raises(EibError, match="'image.version' must be a string"):
+            load_config(config)
+
+    def test_non_mapping_image_raises(self, tmp_path):
+        config = tmp_path / "eib.yml"
+        config.write_text("image: elxr\n")
+        with pytest.raises(EibError, match="'image' must be a mapping"):
+            load_config(config)
+
+    def test_unknown_image_key_raises(self, tmp_path):
+        config = tmp_path / "eib.yml"
+        config.write_text("image:\n  nmae: elxr\n")
+        with pytest.raises(EibError, match="unknown 'image' key 'nmae'"):
+            load_config(config)
+
+    def test_including_file_overrides_included_image_fields(self, tmp_path):
+        common = tmp_path / "common.yml"
+        common.write_text("image:\n  name: base\n  version: '1.0'\n")
+        config = tmp_path / "eib.yml"
+        config.write_text("include:\n  - common.yml\nimage:\n  version: '2.0'\n")
+        cfg = load_config(config)
+        assert cfg["image_name"] == "base"
+        assert cfg["image_version"] == "2.0"
+
 
 class TestCopyInto:
     def test_missing_source_raises(self, tmp_path):
@@ -266,6 +315,20 @@ class TestPrepareWorkspace:
         assert (workspace / "mkosi.profiles" / "profile-a").is_dir()
         assert (workspace / "mkosi.images" / "image-a").is_dir()
 
+    def test_writes_mkosi_conf_template(self, tmp_path):
+        workspace = tmp_path / "workspace"
+        prepare_workspace(workspace, [], [], dry_run=False)
+        assert (workspace / "mkosi.conf").is_file()
+
+    def test_does_not_overwrite_existing_mkosi_conf(self, tmp_path):
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        (workspace / "mkosi.conf").write_text("custom")
+
+        prepare_workspace(workspace, [], [], dry_run=False)
+
+        assert (workspace / "mkosi.conf").read_text() == "custom"
+
     def test_dry_run_does_not_create_workspace(self, tmp_path):
         workspace = tmp_path / "workspace"
         prepare_workspace(workspace, [], [], dry_run=True)
@@ -278,6 +341,7 @@ class TestStepBuild:
         monkeypatch.setattr(
             "eib.run", lambda cmd, **kwargs: calls.append((cmd, kwargs))
         )
+        monkeypatch.setattr("eib.default_image_version", lambda: "20260922164500")
         workspace = tmp_path / "workspace"
         output_dir = tmp_path / "out"
 
@@ -290,6 +354,8 @@ class TestStepBuild:
                     "mkosi",
                     "--directory",
                     str(workspace),
+                    "--image-version",
+                    "20260922164500",
                     "--output-dir",
                     str(output_dir),
                     "--format",
@@ -313,6 +379,105 @@ class TestStepBuild:
         args = calls[0][0]
         assert "--debug" in args
         assert not output_dir.exists()
+
+    def test_profiles_are_forwarded(self, tmp_path, monkeypatch):
+        calls = []
+        monkeypatch.setattr(
+            "eib.run", lambda cmd, **kwargs: calls.append((cmd, kwargs))
+        )
+        monkeypatch.setattr("eib.default_image_version", lambda: "20260922164500")
+        workspace = tmp_path / "workspace"
+        output_dir = tmp_path / "out"
+
+        step_build(
+            workspace,
+            output_dir,
+            dry_run=True,
+            profiles=["trixie-bootc", "vendor-extra"],
+        )
+
+        args = calls[0][0]
+        assert args == [
+            "mkosi",
+            "--directory",
+            str(workspace),
+            "--profile",
+            "trixie-bootc",
+            "--profile",
+            "vendor-extra",
+            "--image-version",
+            "20260922164500",
+            "--output-dir",
+            str(output_dir),
+            "--format",
+            "oci",
+            "build",
+        ]
+
+    def test_image_name_and_version_are_forwarded(self, tmp_path, monkeypatch):
+        calls = []
+        monkeypatch.setattr(
+            "eib.run", lambda cmd, **kwargs: calls.append((cmd, kwargs))
+        )
+        workspace = tmp_path / "workspace"
+        output_dir = tmp_path / "out"
+
+        step_build(
+            workspace,
+            output_dir,
+            dry_run=True,
+            profiles=["bianca"],
+            image_name="elxr-bianca",
+            image_version="1.0",
+        )
+
+        args = calls[0][0]
+        assert args == [
+            "mkosi",
+            "--directory",
+            str(workspace),
+            "--profile",
+            "bianca",
+            "--image-id",
+            "elxr-bianca",
+            "--image-version",
+            "1.0",
+            "--output-dir",
+            str(output_dir),
+            "--format",
+            "oci",
+            "build",
+        ]
+
+    def test_missing_image_version_uses_timestamp(self, tmp_path, monkeypatch):
+        calls = []
+        monkeypatch.setattr(
+            "eib.run", lambda cmd, **kwargs: calls.append((cmd, kwargs))
+        )
+
+        step_build(
+            tmp_path / "workspace",
+            tmp_path / "out",
+            dry_run=True,
+            image_name="elxr-bianca",
+        )
+
+        args = calls[0][0]
+        assert "--auto-bump" not in args
+        version = args[args.index("--image-version") + 1]
+        assert len(version) == 14 and version.isdigit()
+
+
+class TestDefaultImageVersion:
+    def test_is_utc_timestamp(self, monkeypatch):
+        class FakeDatetime:
+            @staticmethod
+            def now(tz):
+                assert tz is timezone.utc
+                return datetime(2026, 9, 22, 16, 45, 0, tzinfo=tz)
+
+        monkeypatch.setattr("eib.datetime", FakeDatetime)
+        assert default_image_version() == "20260922164500"
 
 
 class TestFindOciOutput:

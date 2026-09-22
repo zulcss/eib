@@ -6,11 +6,18 @@ and image directories, then runs mkosi to produce an OCI image.
 Given a YAML config listing profile directories and image directories,
 eib:
 
-1. **assemble** &mdash; creates the workspace, then copies each listed
-   profile directory into `<workspace>/mkosi.profiles/<name>` and each
-   listed image directory into `<workspace>/mkosi.images/<name>`.
+1. **assemble** &mdash; creates the workspace, seeds it with a starter
+   `<workspace>/mkosi.conf` (if one isn't already there), then copies
+   each listed profile directory into `<workspace>/mkosi.profiles/<name>`
+   and each listed image directory into `<workspace>/mkosi.images/<name>`.
 2. **build** &mdash; runs `mkosi ... build` with `Format=oci` in that
-   workspace, producing an OCI image.
+   workspace, producing an OCI image. Each listed profile name is also
+   passed to mkosi as `--profile <name>`, so the profile's
+   `mkosi.profiles/<name>/` content is actually activated rather than
+   just being present on disk. The configured `image.name` and
+   `image.version`, if set, are passed as `--image-id` and
+   `--image-version`. Without an `image.version`, the UTC build time
+   (`YYYYMMDDHHMMSS`, e.g. `20260922164500`) is used as the version.
 
 ## Requirements
 
@@ -36,6 +43,9 @@ profiles:
 images:
   - initrd
   - system
+image:
+  name: elxr-bianca            # mkosi --image-id
+  version: "1.0"               # mkosi --image-version
 ```
 
 | Key | Meaning |
@@ -43,6 +53,11 @@ images:
 | `include` | list of other config files to merge in first (see below) |
 | `profiles` | list copied to `<workspace>/mkosi.profiles/<name>` (see below) |
 | `images` | list copied to `<workspace>/mkosi.images/<name>` (see below) |
+| `image` | mapping with optional `name` and `version` of the built image, passed to mkosi as `--image-id`/`--image-version` (no `version` &rarr; UTC build timestamp) |
+
+`image.version` must be a string (or an integer): quote it, since YAML
+reads an unquoted `1.10` as the number `1.1`. Unknown `image` keys are an
+error.
 
 Each `profiles`/`images` entry is either:
 
@@ -90,6 +105,10 @@ directory of the file it's written in &mdash; not the top-level config
 &mdash; so an included file's own relative paths keep working regardless
 of where it's included from.
 
+`image` is merged field by field instead: an included file can set a
+default `name`/`version`, and the including file overrides whichever
+fields it sets itself.
+
 ## Pointing at a directory of profiles and images
 
 `--mkosi-dir DIR` sets the default source for any plain-name `profiles`/
@@ -136,7 +155,9 @@ of where it's included from.
 
 - Re-running against an existing workspace replaces each named
   `mkosi.profiles/`/`mkosi.images/` entry rather than erroring or leaving
-  stale copies; anything else already in the workspace is left alone.
+  stale copies; anything else already in the workspace is left alone,
+  including an existing `mkosi.conf` (the template is only written once,
+  so local edits to it survive a re-run).
 - Requires root/`--privileged` in practice: mkosi needs loop devices and
   sandboxing.
 - The OCI artifact is auto-detected in the output directory after the
