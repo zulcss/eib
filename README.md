@@ -40,6 +40,7 @@ images:
 
 | Key | Meaning |
 |---|---|
+| `include` | list of other config files to merge in first (see below) |
 | `profiles` | list copied to `<workspace>/mkosi.profiles/<name>` (see below) |
 | `images` | list copied to `<workspace>/mkosi.images/<name>` (see below) |
 
@@ -56,6 +57,38 @@ Each `profiles`/`images` entry is either:
 
 All paths (any per-entry `dir`) are resolved relative to the config
 file's own location, not the current directory.
+
+## Splitting a config into multiple files
+
+`include` pulls in the `profiles`/`images` of other config files, so
+shared setup can be factored out of a config that's otherwise specific to
+one image:
+
+```yaml
+# common.yml
+profiles:
+  - common
+images:
+  - initrd
+```
+
+```yaml
+# config.yml
+include:
+  - common.yml
+profiles:
+  - trixie-bootc
+```
+
+Included files use the same shape as any other config, and may
+themselves `include` further files (nested/transitive includes are
+followed; an include cycle is an error). An included file's `profiles`/
+`images` are merged in *before* the including file's own entries, so a
+name listed in both is copied last (and wins) from the including file.
+Each `include` path, like any relative `dir`, resolves against the
+directory of the file it's written in &mdash; not the top-level config
+&mdash; so an included file's own relative paths keep working regardless
+of where it's included from.
 
 ## Pointing at a directory of profiles and images
 

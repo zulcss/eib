@@ -6,6 +6,16 @@
 #
 # This one is runnable as-is against the bundled example profile:
 #   ./eib.py config.yml --mkosi-dir examples/mkosi-dir --dry-run
+#
+# A config can also pull in other config files instead of listing
+# everything in one place:
+#
+#   include:
+#     - common.yml
+#
+# Included files use this same shape (and may include further files);
+# their profiles/images are merged in ahead of this file's own. See
+# README.md for details.
 
 # Copied into <workspace>/mkosi.profiles/<name>. A plain string is looked
 # up under --mkosi-dir/profiles (pass --mkosi-dir on the command line); a
