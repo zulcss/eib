@@ -1,5 +1,7 @@
 # Containerfile for eib.
 #
+# Built on eLxr (elxrlinux/elxr:latest, a Debian-derived distro -- see
+# https://elxr.org), matching the "bianca" profile eib itself targets.
 # Bundles mkosi plus PyYAML, which eib.py needs to parse the workspace
 # config. That's the whole pipeline now: assemble a workspace, then
 # `mkosi build`.
@@ -21,7 +23,7 @@
 # directory mounted in -- see the justfile, which wraps the exact
 # `podman run` invocation.
 
-FROM debian:trixie-slim
+FROM elxrlinux/elxr:latest
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git \
@@ -40,6 +42,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         systemd-ukify \
         fdisk \
         debian-archive-keyring \
+        elxr-archive-keyring \
         cryptsetup-bin \
         dosfstools \
         mtools \
