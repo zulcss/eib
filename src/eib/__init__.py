@@ -4,6 +4,7 @@ import logging
 import shlex
 import shutil
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 
 log = logging.getLogger("eib")
@@ -80,17 +81,22 @@ def resolve_entries(
     return resolved
 
 
+IMAGE_KEYS = ("name", "version")
+
+
 def _load_config_file(
     path: Path, seen: frozenset[Path]
-) -> tuple[list[tuple[object, Path]], list[tuple[object, Path]]]:
+) -> tuple[list[tuple[object, Path]], list[tuple[object, Path]], dict[str, str]]:
     """Recursively load a config file together with any files it 'include's.
 
     Returns the combined 'profiles'/'images' entries as (entry, base_dir)
     pairs, base_dir being the directory of whichever file (this one, or an
-    included one) contributed that entry. Included files are loaded
-    depth-first in the order listed, and their entries are placed *before*
-    this file's own, so a file's own profiles/images are appended after
-    (and so take precedence when a name collides, since later copies win).
+    included one) contributed that entry, plus the merged 'image' settings.
+    Included files are loaded depth-first in the order listed, and their
+    entries are placed *before* this file's own, so a file's own
+    profiles/images are appended after (and so take precedence when a
+    name collides, since later copies win). Likewise, each 'image' field
+    this file sets overrides the same field from any included file.
     """
     try:
         import yaml
@@ -116,15 +122,32 @@ def _load_config_file(
     own_profiles = data.get("profiles") or []
     own_images = data.get("images") or []
     includes = data.get("include") or []
+    own_image = data.get("image") or {}
     if not isinstance(own_profiles, list):
         raise EibError(f"{path}: 'profiles' must be a list")
     if not isinstance(own_images, list):
         raise EibError(f"{path}: 'images' must be a list")
     if not isinstance(includes, list):
         raise EibError(f"{path}: 'include' must be a list")
+    if not isinstance(own_image, dict):
+        raise EibError(f"{path}: 'image' must be a mapping")
+    for key, value in own_image.items():
+        if key not in IMAGE_KEYS:
+            raise EibError(
+                f"{path}: unknown 'image' key {key!r} "
+                f"(expected one of: {', '.join(IMAGE_KEYS)})"
+            )
+        # YAML reads e.g. 1.10 as the float 1.1, so only accept values
+        # that round-trip exactly; anything else must be quoted.
+        if not isinstance(value, (str, int)) or isinstance(value, bool):
+            raise EibError(
+                f"{path}: 'image.{key}' must be a string "
+                f"(quote it in the YAML): {value!r}"
+            )
 
     profiles = [(entry, base_dir) for entry in own_profiles]
     images = [(entry, base_dir) for entry in own_images]
+    image: dict[str, str] = {}
 
     for include in includes:
         if not isinstance(include, str):
@@ -132,11 +155,16 @@ def _load_config_file(
         include_path = Path(include)
         if not include_path.is_absolute():
             include_path = base_dir / include_path
-        included_profiles, included_images = _load_config_file(include_path, seen)
+        included_profiles, included_images, included_image = _load_config_file(
+            include_path, seen
+        )
         profiles = included_profiles + profiles
         images = included_images + images
+        image.update(included_image)
 
-    return profiles, images
+    image.update({key: str(value) for key, value in own_image.items()})
+
+    return profiles, images, image
 
 
 def load_config(path: Path) -> dict:
@@ -154,6 +182,10 @@ def load_config(path: Path) -> dict:
         images:
           - initrd
           - system
+        image:
+          name: elxr-bianca            # passed to mkosi as --image-id
+          version: "1.0"               # passed to mkosi as --image-version
+                                       # (omit to use a build timestamp)
 
     'include' lists other config files (same shape, and itself may
     include further files) whose 'profiles'/'images' are merged in ahead
@@ -162,13 +194,17 @@ def load_config(path: Path) -> dict:
     --mkosi-dir isn't given) are resolved relative to the directory of
     whichever config file they appear in, not necessarily the top-level
     one. The raw 'profiles'/'images' lists are returned unresolved; main()
-    resolves them once --mkosi-dir is known.
+    resolves them once --mkosi-dir is known. 'image' (both keys optional)
+    names and versions the built image; a field set in the including file
+    overrides the same field from an included one.
     """
-    profiles, images = _load_config_file(path, seen=frozenset())
+    profiles, images, image = _load_config_file(path, seen=frozenset())
 
     return {
         "profiles_raw": profiles,
         "images_raw": images,
+        "image_name": image.get("name"),
+        "image_version": image.get("version"),
         "base_dir": path.parent,
     }
 
@@ -196,6 +232,28 @@ def copy_into(src: Path, dest_dir: Path, name: str, dry_run: bool) -> None:
         shutil.copy2(src, dest)
 
 
+MKOSI_CONF_TEMPLATE = """\
+# Top-level mkosi config for this workspace.
+#
+# Settings here apply to every image under mkosi.images/, layered
+# beneath whatever the selected profile(s) (mkosi.profiles/) provide.
+# See mkosi's docs for the full list of settings:
+# https://github.com/systemd/mkosi/blob/main/mkosi/resources/mkosi.md
+"""
+
+
+def write_mkosi_conf(workspace: Path, dry_run: bool) -> None:
+    """Seed workspace/mkosi.conf with a starter template, unless a config
+    already exists there (so re-running never clobbers local edits)."""
+    conf = workspace / "mkosi.conf"
+    if conf.exists():
+        return
+    log.info("writing %s", conf)
+    if dry_run:
+        return
+    conf.write_text(MKOSI_CONF_TEMPLATE)
+
+
 def prepare_workspace(
     workspace: Path,
     profiles: list[tuple[str, Path]],
@@ -208,6 +266,8 @@ def prepare_workspace(
     if not dry_run:
         workspace.mkdir(parents=True, exist_ok=True)
 
+    write_mkosi_conf(workspace, dry_run)
+
     profiles_dest = workspace / "mkosi.profiles"
     images_dest = workspace / "mkosi.images"
 
@@ -219,14 +279,37 @@ def prepare_workspace(
     return workspace
 
 
+def default_image_version() -> str:
+    """Timestamp version (UTC, YYYYMMDDHHMMSS) for builds whose config
+    doesn't set 'image.version'. All digits, so later builds always
+    compare as newer versions."""
+    return datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+
+
 def step_build(
-    workspace: Path, output_dir: Path, dry_run: bool, debug: bool = False
+    workspace: Path,
+    output_dir: Path,
+    dry_run: bool,
+    debug: bool = False,
+    profiles: list[str] | None = None,
+    image_name: str | None = None,
+    image_version: str | None = None,
 ) -> None:
-    """Run mkosi in the workspace to produce an OCI image."""
+    """Run mkosi in the workspace to produce an OCI image.
+
+    Without an explicit image_version, a UTC build timestamp is used
+    instead (see default_image_version), so each build gets a new,
+    increasing version.
+    """
     output_dir.mkdir(parents=True, exist_ok=True) if not dry_run else None
     cmd = ["mkosi", "--directory", str(workspace)]
     if debug:
         cmd.append("--debug")
+    for name in profiles or []:
+        cmd += ["--profile", name]
+    if image_name:
+        cmd += ["--image-id", image_name]
+    cmd += ["--image-version", image_version or default_image_version()]
     cmd += ["--output-dir", str(output_dir), "--format", "oci", "build"]
     run(cmd, dry_run=dry_run)
 

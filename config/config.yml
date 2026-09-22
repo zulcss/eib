@@ -29,3 +29,12 @@ profiles:
 # looked up under --mkosi-dir/images. Unlike profiles, this list (and
 # --mkosi-dir/images itself) is entirely optional.
 images: []
+
+# Name and version of the built image, passed to mkosi as --image-id and
+# --image-version. Both are optional; without a version, the UTC build
+# time (YYYYMMDDHHMMSS, e.g. 20260922164500) is used instead. Quote the
+# version so YAML keeps it a string (an unquoted 1.10 would otherwise be
+# read as the number 1.1).
+image:
+  name: elxr-bianca
+  version: "1.0"
