@@ -2,7 +2,7 @@
 #
 # Built on eLxr (elxrlinux/elxr:latest, a Debian-derived distro -- see
 # https://elxr.org), matching the "bianca" profile eib itself targets.
-# Bundles mkosi plus PyYAML, which eib.py needs to parse the workspace
+# Bundles mkosi plus PyYAML, which eib needs to parse the workspace
 # config. That's the whole pipeline now: assemble a workspace, then
 # `mkosi build`.
 #
@@ -66,7 +66,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN pip install --break-system-packages \
         "git+https://gitlab.com/elxr/tools/d2o/mkosi.git@main"
 
-COPY pyproject.toml README.md eib.py /src/
+COPY pyproject.toml README.md /src/
+COPY src /src/src
 RUN pip install --break-system-packages --no-build-isolation --no-deps /src \
     && rm -rf /src
 
