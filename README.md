@@ -14,8 +14,14 @@ eib:
 
 ## Requirements
 
-`mkosi` must be installed and on `PATH`, and PyYAML (`pip install pyyaml`)
-to parse the config.
+`mkosi` must be installed and on `PATH`. eib itself needs PyYAML to parse
+the config; either install it directly (`pip install pyyaml`), or install
+eib as a package, which pulls it in as a dependency and gives you an `eib`
+command:
+
+```
+pip install .
+```
 
 ## Config
 
