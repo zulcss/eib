@@ -11,7 +11,12 @@ eib:
    each listed profile directory into `<workspace>/mkosi.profiles/<name>`
    and each listed image directory into `<workspace>/mkosi.images/<name>`.
 2. **build** &mdash; runs `mkosi ... build` with `Format=oci` in that
-   workspace, producing an OCI image.
+   workspace, producing an OCI image. Each listed profile name is also
+   passed to mkosi as `--profile <name>`, so the profile's
+   `mkosi.profiles/<name>/` content is actually activated rather than
+   just being present on disk. Each listed image name is likewise passed
+   as `--image <name>`, restricting the build to those images rather
+   than every image under `mkosi.images/`.
 
 ## Requirements
 

@@ -328,6 +328,68 @@ class TestStepBuild:
         assert "--debug" in args
         assert not output_dir.exists()
 
+    def test_profiles_are_forwarded(self, tmp_path, monkeypatch):
+        calls = []
+        monkeypatch.setattr(
+            "eib.run", lambda cmd, **kwargs: calls.append((cmd, kwargs))
+        )
+        workspace = tmp_path / "workspace"
+        output_dir = tmp_path / "out"
+
+        step_build(
+            workspace,
+            output_dir,
+            dry_run=True,
+            profiles=["trixie-bootc", "vendor-extra"],
+        )
+
+        args = calls[0][0]
+        assert args == [
+            "mkosi",
+            "--directory",
+            str(workspace),
+            "--profile",
+            "trixie-bootc",
+            "--profile",
+            "vendor-extra",
+            "--output-dir",
+            str(output_dir),
+            "--format",
+            "oci",
+            "build",
+        ]
+
+    def test_images_are_forwarded(self, tmp_path, monkeypatch):
+        calls = []
+        monkeypatch.setattr(
+            "eib.run", lambda cmd, **kwargs: calls.append((cmd, kwargs))
+        )
+        workspace = tmp_path / "workspace"
+        output_dir = tmp_path / "out"
+
+        step_build(
+            workspace,
+            output_dir,
+            dry_run=True,
+            images=["initrd", "rootfs"],
+        )
+
+        args = calls[0][0]
+        assert args == [
+            "mkosi",
+            "--directory",
+            str(workspace),
+            "--image",
+            "initrd",
+            "--image",
+            "rootfs",
+            "--output-dir",
+            str(output_dir),
+            "--format",
+            "oci",
+            "build",
+        ]
+
 
 class TestFindOciOutput:
     def test_missing_output_dir_raises(self, tmp_path):

@@ -111,7 +111,14 @@ def image_create(
         output_dir = output_dir or (workspace / "mkosi.output")
 
         started = time.time()
-        step_build(workspace, output_dir, dry_run, debug=debug)
+        step_build(
+            workspace,
+            output_dir,
+            dry_run,
+            debug=debug,
+            profiles=[name for name, _ in profiles],
+            images=[name for name, _ in images],
+        )
 
         if dry_run:
             log.info("dry run: nothing was built")
