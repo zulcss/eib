@@ -4,9 +4,11 @@ import click
 
 from eib import load_config
 
+
 @click.group(help="Image Commands")
 def image():
     pass
+
 
 @image.command(
     "build",
@@ -14,35 +16,49 @@ def image():
     help="eib image builder",
 )
 @click.option(
-    "--config", type=click.Path(path_type=Path), required=True,
+    "--config",
+    type=click.Path(path_type=Path),
+    required=True,
     help="YAML config listing the profiles and images to assemble "
     "(see eib.yaml.example)",
 )
 @click.option(
-    "--workspace", type=click.Path(path_type=Path),
-    default=Path("/var/tmp/build/eib-workspace"), show_default=True,
+    "--workspace",
+    type=click.Path(path_type=Path),
+    default=Path("/var/tmp/build/eib-workspace"),
+    show_default=True,
     help="directory to assemble and build in",
 )
 @click.option(
-    "--mkosi-dir", type=click.Path(path_type=Path), default=None,
+    "--mkosi-dir",
+    type=click.Path(path_type=Path),
+    default=None,
     help="directory with 'profiles' and 'images' subdirectories, used "
     "as the default source for plain-name profiles/images config "
     "entries. 'profiles' is required if this is given; 'images' is "
     "optional.",
 )
 @click.option(
-    "-O", "--output-dir", type=click.Path(path_type=Path), default=None,
+    "-O",
+    "--output-dir",
+    type=click.Path(path_type=Path),
+    default=None,
     help="mkosi output directory (default: <workspace>/mkosi.output)",
 )
 @click.option(
-    "--dry-run", is_flag=True,
+    "--dry-run",
+    is_flag=True,
     help="print what would be copied and run, without doing either",
 )
 @click.option(
-    "-v", "--verbose", is_flag=True, help="verbose logging",
+    "-v",
+    "--verbose",
+    is_flag=True,
+    help="verbose logging",
 )
 @click.option(
-    "--debug", is_flag=True,
+    "--debug",
+    is_flag=True,
     help="pass --debug to mkosi for more detailed build output",
 )
 def image_create(
