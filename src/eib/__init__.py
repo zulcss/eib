@@ -81,7 +81,24 @@ def resolve_entries(
     return resolved
 
 
-IMAGE_KEYS = ("name", "version")
+IMAGE_KEYS = ("name", "version", "format")
+
+# Output formats accepted by mkosi's --format.
+MKOSI_FORMATS = (
+    "addon",
+    "confext",
+    "cpio",
+    "directory",
+    "disk",
+    "esp",
+    "none",
+    "oci",
+    "portable",
+    "sysext",
+    "tar",
+    "uki",
+)
+DEFAULT_IMAGE_FORMAT = "disk"
 
 
 def _load_config_file(
@@ -144,6 +161,11 @@ def _load_config_file(
                 f"{path}: 'image.{key}' must be a string "
                 f"(quote it in the YAML): {value!r}"
             )
+        if key == "format" and value not in MKOSI_FORMATS:
+            raise EibError(
+                f"{path}: unsupported 'image.format' {value!r} "
+                f"(expected one of: {', '.join(MKOSI_FORMATS)})"
+            )
 
     profiles = [(entry, base_dir) for entry in own_profiles]
     images = [(entry, base_dir) for entry in own_images]
@@ -186,6 +208,8 @@ def load_config(path: Path) -> dict:
           name: elxr-bianca            # passed to mkosi as --image-id
           version: "1.0"               # passed to mkosi as --image-version
                                        # (omit to use a build timestamp)
+          format: disk                 # passed to mkosi as --format
+                                       # (default: disk)
 
     'include' lists other config files (same shape, and itself may
     include further files) whose 'profiles'/'images' are merged in ahead
@@ -194,9 +218,10 @@ def load_config(path: Path) -> dict:
     --mkosi-dir isn't given) are resolved relative to the directory of
     whichever config file they appear in, not necessarily the top-level
     one. The raw 'profiles'/'images' lists are returned unresolved; main()
-    resolves them once --mkosi-dir is known. 'image' (both keys optional)
-    names and versions the built image; a field set in the including file
-    overrides the same field from an included one.
+    resolves them once --mkosi-dir is known. 'image' (all keys optional)
+    names, versions and sets the output format of the built image; a field
+    set in the including file overrides the same field from an included
+    one.
     """
     profiles, images, image = _load_config_file(path, seen=frozenset())
 
@@ -205,6 +230,7 @@ def load_config(path: Path) -> dict:
         "images_raw": images,
         "image_name": image.get("name"),
         "image_version": image.get("version"),
+        "image_format": image.get("format", DEFAULT_IMAGE_FORMAT),
         "base_dir": path.parent,
     }
 
@@ -294,8 +320,10 @@ def step_build(
     profiles: list[str] | None = None,
     image_name: str | None = None,
     image_version: str | None = None,
+    image_format: str = DEFAULT_IMAGE_FORMAT,
 ) -> None:
-    """Run mkosi in the workspace to produce an OCI image.
+    """Run mkosi in the workspace to produce an image in image_format
+    (one of MKOSI_FORMATS; a disk image by default).
 
     Without an explicit image_version, a UTC build timestamp is used
     instead (see default_image_version), so each build gets a new,
@@ -310,7 +338,7 @@ def step_build(
     if image_name:
         cmd += ["--image-id", image_name]
     cmd += ["--image-version", image_version or default_image_version()]
-    cmd += ["--output-dir", str(output_dir), "--format", "oci", "build"]
+    cmd += ["--output-dir", str(output_dir), "--format", image_format, "build"]
     run(cmd, dry_run=dry_run)
 
 

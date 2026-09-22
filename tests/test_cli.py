@@ -41,6 +41,32 @@ class TestImageBuild:
         assert result.exit_code == 0, result.output
         assert "dry run: nothing was built" in caplog.text
 
+    def test_default_disk_format_skips_oci_lookup(self, tmp_path, caplog, monkeypatch):
+        config = tmp_path / "eib.yml"
+        config.write_text("profiles: []\n")
+        calls = []
+        monkeypatch.setattr(
+            "eib.run", lambda cmd, **kwargs: calls.append((cmd, kwargs))
+        )
+        runner = CliRunner()
+
+        with caplog.at_level("INFO", logger="eib"):
+            result = runner.invoke(
+                image,
+                [
+                    "build",
+                    "--config",
+                    str(config),
+                    "--workspace",
+                    str(tmp_path / "workspace"),
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        args = calls[0][0]
+        assert args[args.index("--format") + 1] == "disk"
+        assert "done: built disk image in" in caplog.text
+
     def test_missing_config_exits_with_error(self, tmp_path, caplog):
         runner = CliRunner()
 
