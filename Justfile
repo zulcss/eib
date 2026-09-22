@@ -19,7 +19,7 @@ build-container:
     podman build -t {{ image_name }} -f Containerfile .
 
 # Run eib with arbitrary arguments (e.g. `just run --config eib.yaml`)
-build-image *args: image
+build-image *args: build-container
     podman run --rm --privileged \
         -v "$(pwd)":/workspace -w /workspace \
         {{ image_name }} {{ args }}
