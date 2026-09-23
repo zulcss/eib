@@ -204,17 +204,13 @@ eib image install --config config.yml
 ```
 
 It creates `container.disk` as a sparse file of `container.size` (with
-`truncate -s`, so any size it accepts, e.g. `10G`), then runs the
-image's own bootc against it:
+`truncate -s`, so any size it accepts, e.g. `10G`), then runs bootc
+against it, reading the image from local container storage:
 
 ```
-podman run --rm --privileged --pid=host \
-    --security-opt label=type:unconfined_t \
-    -e RUST_LOG=debug \
-    -v /dev:/dev -v /var/lib/containers:/var/lib/containers \
-    -v <disk dir>:/output \
-    localhost/<tag> bootc install to-disk --composefs-backend --wipe \
-        --filesystem <filesystem> --via-loopback /output/<disk>
+bootc install to-disk --source-imgref containers-storage:localhost/<tag> \
+    --composefs-backend --wipe --filesystem <filesystem> \
+    --via-loopback <disk>
 ```
 
 The tag is qualified with `localhost/` the same way `eib image import`
@@ -228,11 +224,10 @@ first to reinstall.
 | `--disk FILE` | disk image to create, overriding `container.disk` |
 | `--size SIZE` | disk image size, overriding `container.size` |
 | `--filesystem FS` | root filesystem (e.g. `ext4`, `xfs`, `btrfs`), overriding `container.filesystem` |
-| `--dry-run` | print the `truncate`/`podman` commands without running them |
+| `--dry-run` | print the `truncate`/`bootc` commands without running them |
 | `-v, --verbose` | verbose logging |
 
-Run it on the host as root: it needs rootful `podman`, and the image must
-include bootc.
+Run it on the host as root: it needs `bootc` installed there.
 
 ## Notes
 
