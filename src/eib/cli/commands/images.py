@@ -5,13 +5,18 @@ from pathlib import Path
 import click
 
 from eib import (
+    DEFAULT_EXPORT_PLATFORM,
+    EXPORT_PLATFORMS,
     EibError,
+    export_path,
+    find_disk_output,
     find_oci_output,
     load_config,
     log,
     prepare_workspace,
     resolve_entries,
     step_build,
+    step_export,
     step_import,
     step_install,
 )
@@ -303,6 +308,117 @@ def image_install(
             log.info("dry run: nothing was installed")
         else:
             log.info("done: installed %s to %s", tag, disk)
+
+    except EibError as exc:
+        log.error("error: %s", exc)
+        raise SystemExit(1) from exc
+    except KeyboardInterrupt:
+        log.error("interrupted")
+        raise SystemExit(130) from None
+
+
+@image.command(
+    "export",
+    context_settings={"help_option_names": ["-h", "--help"]},
+    help="convert a disk image to a platform's image format with "
+    "'qemu-img convert': the most recently built disk image when the "
+    "config's image.format is disk, or the config's container.disk "
+    "(as written by 'eib image install') when it is oci",
+)
+@click.option(
+    "--config",
+    type=click.Path(path_type=Path),
+    required=True,
+    help="YAML config giving the image format and container disk (see config.yml)",
+)
+@click.option(
+    "--platform",
+    type=click.Choice(list(EXPORT_PLATFORMS)),
+    default=DEFAULT_EXPORT_PLATFORM,
+    show_default=True,
+    help="image format to convert to",
+)
+@click.option(
+    "--workspace",
+    type=click.Path(path_type=Path),
+    default=Path("/var/tmp/build/eib-workspace"),
+    show_default=True,
+    help="directory the image was built in (image.format disk only)",
+)
+@click.option(
+    "-O",
+    "--output-dir",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="mkosi output directory (default: <workspace>/mkosi.output; "
+    "image.format disk only)",
+)
+@click.option(
+    "--disk",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="disk image to convert (overrides the config's container.disk; "
+    "image.format oci only)",
+)
+@click.option(
+    "-o",
+    "--output",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="file to write (default: the disk image's path with the "
+    "platform's extension, e.g. .qcow2)",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="print the conversion command without running it",
+)
+@click.option(
+    "-v",
+    "--verbose",
+    is_flag=True,
+    help="verbose logging",
+)
+def image_export(
+    config: Path,
+    platform: str,
+    workspace: Path,
+    output_dir: Path | None,
+    disk: Path | None,
+    output: Path | None,
+    dry_run: bool,
+    verbose: bool,
+) -> None:
+    logging.basicConfig(
+        level=logging.DEBUG if verbose else logging.INFO,
+        format="%(message)s",
+    )
+
+    try:
+        cfg = load_config(config)
+        if cfg["image_format"] == "disk":
+            output_dir = output_dir or (workspace / "mkosi.output")
+            disk = find_disk_output(output_dir)
+        elif cfg["image_format"] == "oci":
+            disk = disk or cfg["container_disk"]
+            if not disk:
+                raise EibError(
+                    f"no container disk: set 'container.disk' in {config} "
+                    "or pass --disk"
+                )
+        else:
+            raise EibError(
+                f"only disk and OCI images can be exported, but {config} has "
+                f"'image.format' {cfg['image_format']!r}"
+            )
+        output = output or export_path(disk, platform)
+
+        step_export(disk, output, platform, dry_run)
+
+        if dry_run:
+            log.info("dry run: nothing was exported")
+        else:
+            log.info("done: exported %s to %s", disk, output)
 
     except EibError as exc:
         log.error("error: %s", exc)

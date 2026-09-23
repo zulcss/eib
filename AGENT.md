@@ -13,10 +13,10 @@ and flags.
 - `src/eib/__init__.py` — all core logic (config loading, entry
   resolution, workspace assembly, running mkosi, locating the OCI
   output when building OCI, importing it with skopeo, installing it to a
-  disk image with bootc). Pure functions, no CLI concerns.
+  disk image with bootc, exporting a disk image with qemu-img). Pure functions, no CLI concerns.
 - `src/eib/cli/commands/shell.py` — root `click` group (`cli`).
-- `src/eib/cli/commands/images.py` — `image build`, `image import` and
-  `image install` subcommands; wire CLI flags to the core functions in `eib/__init__.py`.
+- `src/eib/cli/commands/images.py` — `image build`, `image import`,
+  `image install` and `image export` subcommands; wire CLI flags to the core functions in `eib/__init__.py`.
 - `src/eib/__main__.py` — entry point (`eib = eib.__main__:main`).
 - `config/config.yml` — example workspace config.
 - `tests/test_core.py`, `tests/test_cli.py` — pytest suites for the two
@@ -52,5 +52,5 @@ build --config config/config.yml`.
   message; the CLI layer catches it and exits non-zero rather than
   printing a traceback.
 - `--dry-run` must stay honest: every mutating step (`run`, `copy_into`,
-  `prepare_workspace`, `step_build`, `step_import`, `step_install`) takes a `dry_run` flag and only
+  `prepare_workspace`, `step_build`, `step_import`, `step_install`, `step_export`) takes a `dry_run` flag and only
   logs what it would do.

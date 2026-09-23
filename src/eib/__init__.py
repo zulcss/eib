@@ -490,3 +490,78 @@ def step_install(
         ],
         dry_run=dry_run,
     )
+
+
+# Platforms 'eib image export' converts to: platform -> (qemu-img output
+# format, file extension).
+EXPORT_PLATFORMS = {
+    "qcow2": ("qcow2", ".qcow2"),
+    "vmdk": ("vmdk", ".vmdk"),
+    "vhdx": ("vhdx", ".vhdx"),
+    "vhd": ("vpc", ".vhd"),
+    "vdi": ("vdi", ".vdi"),
+}
+DEFAULT_EXPORT_PLATFORM = "qcow2"
+
+
+def find_disk_output(output_dir: Path) -> Path:
+    """Locate the most recently built raw disk image in output_dir.
+
+    mkosi names it after the image id and version (e.g.
+    elxr-bianca_1.0.raw) and adds an unversioned symlink to it; symlinks
+    are skipped so the real file is returned.
+    """
+    if not output_dir.exists():
+        raise EibError(f"output directory does not exist: {output_dir}")
+
+    candidates = [
+        entry
+        for entry in output_dir.iterdir()
+        if entry.suffix == ".raw" and entry.is_file() and not entry.is_symlink()
+    ]
+    if not candidates:
+        raise EibError(
+            f"no disk image (*.raw) found in {output_dir}; "
+            "build one with 'image.format: disk' first"
+        )
+
+    candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    return candidates[0]
+
+
+def export_path(disk: Path, platform: str) -> Path:
+    """Default path of disk exported to platform: disk with its extension
+    swapped for the platform's (e.g. elxr-bianca.raw -> elxr-bianca.qcow2)."""
+    return disk.with_suffix(EXPORT_PLATFORMS[platform][1])
+
+
+def step_export(disk: Path, output: Path, platform: str, dry_run: bool) -> None:
+    """Convert the raw disk image disk to platform's image format (one of
+    EXPORT_PLATFORMS) at output, with 'qemu-img convert'. An existing
+    output is never overwritten.
+    """
+    if platform not in EXPORT_PLATFORMS:
+        raise EibError(
+            f"unsupported platform {platform!r} "
+            f"(expected one of: {', '.join(EXPORT_PLATFORMS)})"
+        )
+    if not disk.is_file():
+        raise EibError(f"disk image not found: {disk}")
+    if output.exists():
+        raise EibError(f"exported image already exists: {output} (remove it first)")
+    log.info("creating directory %s", output.parent)
+    if not dry_run:
+        output.parent.mkdir(parents=True, exist_ok=True)
+    run(
+        [
+            "qemu-img",
+            "convert",
+            "-f",
+            "raw",
+            "-O",
+            EXPORT_PLATFORMS[platform][0],
+            str(disk),
+            str(output),
+        ],
+        dry_run=dry_run,
+    )

@@ -229,6 +229,48 @@ first to reinstall.
 
 Run it on the host as root: it needs `bootc` installed there.
 
+## Exporting to other image formats
+
+`eib image export` converts a raw disk image to the format a
+virtualization platform expects, with `qemu-img convert`:
+
+```
+eib image export --config config.yml                   # qcow2
+eib image export --config config.yml --platform vmdk
+```
+
+Which disk image it converts depends on the config's `image.format`:
+
+- `disk`: the most recently built `*.raw` image in the mkosi output
+  directory (e.g. `elxr-bianca_1.0.raw`).
+- `oci`: `container.disk`, the disk image `eib image install` writes.
+
+Any other format is an error. The result is written next to the source
+with the platform's extension (e.g. `elxr-bianca.raw` ->
+`elxr-bianca.qcow2`) unless `--output` says otherwise; an existing file
+is never overwritten.
+
+| Platform | `qemu-img` format | Extension |
+|---|---|---|
+| `qcow2` (default) | `qcow2` | `.qcow2` |
+| `vmdk` | `vmdk` | `.vmdk` |
+| `vhdx` | `vhdx` | `.vhdx` |
+| `vhd` | `vpc` | `.vhd` |
+| `vdi` | `vdi` | `.vdi` |
+
+| Flag | Meaning |
+|---|---|
+| `--config FILE` | YAML config giving `image.format` and `container.disk` (required) |
+| `--platform PLATFORM` | format to convert to (default: `qcow2`) |
+| `--workspace DIR` | directory the image was built in (default: `/var/tmp/build/eib-workspace`; `disk` only) |
+| `-O, --output-dir DIR` | mkosi output directory (default: `<workspace>/mkosi.output`; `disk` only) |
+| `--disk FILE` | disk image to convert, overriding `container.disk` (`oci` only) |
+| `-o, --output FILE` | file to write, overriding the default path |
+| `--dry-run` | print the `qemu-img` command without running it |
+| `-v, --verbose` | verbose logging |
+
+It needs `qemu-img` (Debian's `qemu-utils` package).
+
 ## Notes
 
 - Re-running against an existing workspace replaces each named
