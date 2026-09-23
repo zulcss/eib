@@ -740,20 +740,18 @@ class TestStepInstall:
             ["truncate", "-s", "10G", str(disk)],
             {"dry_run": False},
         )
-        podman = calls[1][0]
-        assert podman[:2] == ["podman", "run"]
-        assert f"{tmp_path / 'out'}:/output" in podman
-        assert "localhost/elxr-bianca:latest" in podman
-        assert podman[-9:] == [
+        assert calls[1][0] == [
             "bootc",
             "install",
             "to-disk",
+            "--source-imgref",
+            "containers-storage:localhost/elxr-bianca:latest",
             "--composefs-backend",
             "--wipe",
             "--filesystem",
             "ext4",
             "--via-loopback",
-            "/output/disk.raw",
+            str(disk),
         ]
 
     def test_passes_filesystem_to_bootc(self, tmp_path, monkeypatch):
@@ -766,9 +764,9 @@ class TestStepInstall:
         step_install("elxr-bianca:latest", disk, "10G", dry_run=False)
         step_install("elxr-bianca:latest", disk, "10G", dry_run=False, filesystem="xfs")
 
-        for podman, fs in ((calls[1][0], "ext4"), (calls[3][0], "xfs")):
-            i = podman.index("--filesystem")
-            assert podman[i + 1] == fs
+        for bootc, fs in ((calls[1][0], "ext4"), (calls[3][0], "xfs")):
+            i = bootc.index("--filesystem")
+            assert bootc[i + 1] == fs
 
     def test_dry_run_creates_nothing(self, tmp_path, monkeypatch):
         calls = []

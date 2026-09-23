@@ -267,7 +267,7 @@ class TestImageInstall:
         assert result.exit_code == 0, result.output
         disk = tmp_path / "out" / "disk.raw"
         assert calls[0][0] == ["truncate", "-s", "10G", str(disk)]
-        assert "localhost/elxr-bianca:latest" in calls[1][0]
+        assert "containers-storage:localhost/elxr-bianca:latest" in calls[1][0]
         assert "done: installed" in caplog.text
 
     def test_options_override_config(self, tmp_path, monkeypatch):
@@ -285,7 +285,7 @@ class TestImageInstall:
 
         assert result.exit_code == 0, result.output
         assert calls[0][0] == ["truncate", "-s", "20G", str(disk)]
-        assert "localhost/other:1" in calls[1][0]
+        assert "containers-storage:localhost/other:1" in calls[1][0]
 
     def test_filesystem_from_config_and_option(self, tmp_path, monkeypatch):
         config = tmp_path / "eib.yml"
@@ -298,8 +298,8 @@ class TestImageInstall:
         assert self.invoke(config, "--dry-run").exit_code == 0
         assert self.invoke(config, "--dry-run", "--filesystem", "xfs").exit_code == 0
 
-        for podman, fs in ((calls[1][0], "btrfs"), (calls[3][0], "xfs")):
-            assert podman[podman.index("--filesystem") + 1] == fs
+        for bootc, fs in ((calls[1][0], "btrfs"), (calls[3][0], "xfs")):
+            assert bootc[bootc.index("--filesystem") + 1] == fs
 
     def test_dry_run_reports_no_install(self, tmp_path, caplog):
         config = tmp_path / "eib.yml"

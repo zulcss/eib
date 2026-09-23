@@ -60,7 +60,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         tpm2-tools \
         efitools \
         openssl \
-        podman \
         jq \
         skopeo \
     && rm -rf /var/lib/apt/lists/*
