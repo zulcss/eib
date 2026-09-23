@@ -437,7 +437,7 @@ def local_image_ref(tag: str) -> str:
 def step_import(oci_path: Path, tag: str, dry_run: bool) -> None:
     """Copy an OCI image (an OCI-layout directory or an oci-archive
     tarball, as found by find_oci_output) into local container storage
-    as tag, so podman can run it.
+    as tag, so bootc can install it.
 
     A tag without a registry is stored under localhost/ (see
     local_image_ref).
@@ -462,10 +462,10 @@ def step_install(
     size 'truncate -s' accepts, e.g. 10G), with a root filesystem of the
     given type (passed to bootc as --filesystem, e.g. ext4).
 
-    The file is created sparse with truncate, then the image's own bootc
-    writes to it via 'bootc install to-disk --via-loopback', run inside
-    the image with podman as bootc's docs describe. An existing disk is
-    never overwritten.
+    The file is created sparse with truncate, then the host's bootc
+    writes the image to it via 'bootc install to-disk --via-loopback',
+    reading the image from containers-storage with --source-imgref. An
+    existing disk is never overwritten.
     """
     if disk.exists():
         raise EibError(f"disk image already exists: {disk} (remove it first)")
@@ -476,31 +476,17 @@ def step_install(
     run(["truncate", "-s", size, str(disk)], dry_run=dry_run)
     run(
         [
-            "podman",
-            "run",
-            "--rm",
-            "--privileged",
-            "--pid=host",
-            "--security-opt",
-            "label=type:unconfined_t",
-            "-e",
-            "RUST_LOG=debug",
-            "-v",
-            "/dev:/dev",
-            "-v",
-            "/var/lib/containers:/var/lib/containers",
-            "-v",
-            f"{disk.parent}:/output",
-            local_image_ref(tag),
             "bootc",
             "install",
             "to-disk",
+            "--source-imgref",
+            f"containers-storage:{local_image_ref(tag)}",
             "--composefs-backend",
             "--wipe",
             "--filesystem",
             filesystem,
             "--via-loopback",
-            f"/output/{disk.name}",
+            str(disk),
         ],
         dry_run=dry_run,
     )
