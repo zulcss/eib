@@ -14,12 +14,15 @@ from eib import (
     EibError,
     copy_into,
     default_image_version,
+    export_path,
+    find_disk_output,
     find_oci_output,
     load_config,
     prepare_workspace,
     resolve_entries,
     run,
     step_build,
+    step_export,
     step_import,
     step_install,
 )
@@ -792,3 +795,83 @@ class TestStepInstall:
             step_install("elxr-bianca:latest", disk, "10G", dry_run=False)
         assert calls == []
         assert disk.read_text() == "old"
+
+
+class TestFindDiskOutput:
+    def test_missing_output_dir_raises(self, tmp_path):
+        with pytest.raises(EibError, match="does not exist"):
+            find_disk_output(tmp_path / "missing")
+
+    def test_no_candidates_raises(self, tmp_path):
+        (tmp_path / "image.tar").write_text("data")
+        with pytest.raises(EibError, match="no disk image"):
+            find_disk_output(tmp_path)
+
+    def test_skips_symlinks_and_prefers_newest(self, tmp_path):
+        older = tmp_path / "elxr_0.9.raw"
+        older.write_text("data")
+        newer = tmp_path / "elxr_1.0.raw"
+        newer.write_text("data")
+        (tmp_path / "elxr.raw").symlink_to(newer.name)
+        now = time.time()
+        os.utime(older, (now, now - 10))
+        os.utime(newer, (now, now))
+
+        assert find_disk_output(tmp_path) == newer
+
+
+class TestStepExport:
+    def test_export_path_swaps_extension(self):
+        assert export_path(Path("out/disk.raw"), "qcow2") == Path("out/disk.qcow2")
+        assert export_path(Path("out/disk.raw"), "vhd") == Path("out/disk.vhd")
+
+    def test_runs_qemu_img_convert(self, tmp_path, monkeypatch):
+        disk = tmp_path / "disk.raw"
+        disk.write_text("data")
+        output = tmp_path / "out" / "disk.vhd"
+        calls = []
+        monkeypatch.setattr(
+            "eib.run", lambda cmd, **kwargs: calls.append((cmd, kwargs))
+        )
+
+        step_export(disk, output, "vhd", dry_run=False)
+
+        assert calls[0][0] == [
+            "qemu-img",
+            "convert",
+            "-f",
+            "raw",
+            "-O",
+            "vpc",
+            str(disk),
+            str(output),
+        ]
+        assert output.parent.is_dir()
+
+    def test_dry_run_creates_nothing(self, tmp_path, monkeypatch):
+        disk = tmp_path / "disk.raw"
+        disk.write_text("data")
+        monkeypatch.setattr("eib.run", lambda cmd, **kwargs: None)
+
+        step_export(disk, tmp_path / "out" / "disk.qcow2", "qcow2", dry_run=True)
+
+        assert not (tmp_path / "out").exists()
+
+    def test_missing_disk_raises(self, tmp_path):
+        with pytest.raises(EibError, match="disk image not found"):
+            step_export(
+                tmp_path / "disk.raw", tmp_path / "disk.qcow2", "qcow2", dry_run=True
+            )
+
+    def test_existing_output_raises(self, tmp_path):
+        disk = tmp_path / "disk.raw"
+        disk.write_text("data")
+        (tmp_path / "disk.qcow2").write_text("old")
+        with pytest.raises(EibError, match="already exists"):
+            step_export(disk, tmp_path / "disk.qcow2", "qcow2", dry_run=True)
+
+    def test_unknown_platform_raises(self, tmp_path):
+        disk = tmp_path / "disk.raw"
+        disk.write_text("data")
+        with pytest.raises(EibError, match="unsupported platform"):
+            step_export(disk, tmp_path / "disk.img", "floppy", dry_run=True)

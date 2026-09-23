@@ -1,5 +1,5 @@
-"""Unit tests for the 'eib image build', 'eib image import' and
-'eib image install' CLI commands."""
+"""Unit tests for the 'eib image build', 'eib image import',
+'eib image install' and 'eib image export' CLI commands."""
 
 from __future__ import annotations
 
@@ -321,3 +321,115 @@ class TestImageInstall:
 
         assert result.exit_code == 1
         assert "no container size" in caplog.text
+
+
+class TestImageExport:
+    def invoke(self, tmp_path, config, *extra):
+        return CliRunner().invoke(
+            image,
+            [
+                "export",
+                "--config",
+                str(config),
+                "--workspace",
+                str(tmp_path / "workspace"),
+                *extra,
+            ],
+        )
+
+    def record_calls(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(
+            "eib.run", lambda cmd, **kwargs: calls.append((cmd, kwargs))
+        )
+        return calls
+
+    def test_disk_format_exports_built_image_as_qcow2(
+        self, tmp_path, caplog, monkeypatch
+    ):
+        config = tmp_path / "eib.yml"
+        config.write_text("image:\n  format: disk\n")
+        output_dir = tmp_path / "workspace" / "mkosi.output"
+        output_dir.mkdir(parents=True)
+        raw = output_dir / "elxr-bianca_1.0.raw"
+        raw.write_text("data")
+        calls = self.record_calls(monkeypatch)
+
+        with caplog.at_level("INFO", logger="eib"):
+            result = self.invoke(tmp_path, config)
+
+        assert result.exit_code == 0, result.output
+        cmd = calls[0][0]
+        assert cmd[:6] == ["qemu-img", "convert", "-f", "raw", "-O", "qcow2"]
+        assert cmd[6:] == [str(raw), str(output_dir / "elxr-bianca_1.0.qcow2")]
+        assert "done: exported" in caplog.text
+
+    def test_oci_format_exports_container_disk(self, tmp_path, monkeypatch):
+        config = tmp_path / "eib.yml"
+        config.write_text(OCI_CONFIG + "  disk: out/disk.raw\n")
+        disk = tmp_path / "out" / "disk.raw"
+        disk.parent.mkdir()
+        disk.write_text("data")
+        calls = self.record_calls(monkeypatch)
+
+        result = self.invoke(tmp_path, config, "--platform", "vmdk")
+
+        assert result.exit_code == 0, result.output
+        cmd = calls[0][0]
+        assert cmd[5] == "vmdk"
+        assert cmd[6:] == [str(disk), str(tmp_path / "out" / "disk.vmdk")]
+
+    def test_disk_and_output_options_override(self, tmp_path, monkeypatch):
+        config = tmp_path / "eib.yml"
+        config.write_text(OCI_CONFIG)
+        disk = tmp_path / "other.raw"
+        disk.write_text("data")
+        output = tmp_path / "exported.img"
+        calls = self.record_calls(monkeypatch)
+
+        result = self.invoke(
+            tmp_path, config, "--disk", str(disk), "--output", str(output)
+        )
+
+        assert result.exit_code == 0, result.output
+        assert calls[0][0][6:] == [str(disk), str(output)]
+
+    def test_dry_run_reports_no_export(self, tmp_path, caplog):
+        config = tmp_path / "eib.yml"
+        config.write_text(OCI_CONFIG + "  disk: disk.raw\n")
+        (tmp_path / "disk.raw").write_text("data")
+
+        with caplog.at_level("INFO", logger="eib"):
+            result = self.invoke(tmp_path, config, "--dry-run")
+
+        assert result.exit_code == 0, result.output
+        assert "dry run: nothing was exported" in caplog.text
+        assert not (tmp_path / "disk.qcow2").exists()
+
+    def test_oci_without_disk_exits_with_error(self, tmp_path, caplog):
+        config = tmp_path / "eib.yml"
+        config.write_text(OCI_CONFIG)
+
+        with caplog.at_level("INFO", logger="eib"):
+            result = self.invoke(tmp_path, config)
+
+        assert result.exit_code == 1
+        assert "no container disk" in caplog.text
+
+    def test_other_format_exits_with_error(self, tmp_path, caplog):
+        config = tmp_path / "eib.yml"
+        config.write_text("image:\n  format: tar\n")
+
+        with caplog.at_level("INFO", logger="eib"):
+            result = self.invoke(tmp_path, config)
+
+        assert result.exit_code == 1
+        assert "only disk and OCI images can be exported" in caplog.text
+
+    def test_unknown_platform_is_rejected(self, tmp_path):
+        config = tmp_path / "eib.yml"
+        config.write_text(OCI_CONFIG)
+
+        result = self.invoke(tmp_path, config, "--platform", "floppy")
+
+        assert result.exit_code == 2
