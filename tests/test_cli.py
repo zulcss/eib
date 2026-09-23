@@ -1,4 +1,5 @@
-"""Unit tests for the 'eib image build' and 'eib image import' CLI commands."""
+"""Unit tests for the 'eib image build', 'eib image import' and
+'eib image install' CLI commands."""
 
 from __future__ import annotations
 
@@ -241,3 +242,82 @@ class TestImageImport:
         assert "only OCI images can be imported" in caplog.text
         assert "'disk'" in caplog.text
         assert calls == []
+
+
+INSTALL_CONFIG = (
+    "container:\n  tag: elxr-bianca:latest\n  disk: out/disk.raw\n  size: 10G\n"
+)
+
+
+class TestImageInstall:
+    def invoke(self, config, *extra):
+        return CliRunner().invoke(image, ["install", "--config", str(config), *extra])
+
+    def test_installs_with_config_values(self, tmp_path, caplog, monkeypatch):
+        config = tmp_path / "eib.yml"
+        config.write_text(INSTALL_CONFIG)
+        calls = []
+        monkeypatch.setattr(
+            "eib.run", lambda cmd, **kwargs: calls.append((cmd, kwargs))
+        )
+
+        with caplog.at_level("INFO", logger="eib"):
+            result = self.invoke(config)
+
+        assert result.exit_code == 0, result.output
+        disk = tmp_path / "out" / "disk.raw"
+        assert calls[0][0] == ["truncate", "-s", "10G", str(disk)]
+        assert "localhost/elxr-bianca:latest" in calls[1][0]
+        assert "done: installed" in caplog.text
+
+    def test_options_override_config(self, tmp_path, monkeypatch):
+        config = tmp_path / "eib.yml"
+        config.write_text(INSTALL_CONFIG)
+        calls = []
+        monkeypatch.setattr(
+            "eib.run", lambda cmd, **kwargs: calls.append((cmd, kwargs))
+        )
+        disk = tmp_path / "other.raw"
+
+        result = self.invoke(
+            config, "--tag", "other:1", "--disk", str(disk), "--size", "20G"
+        )
+
+        assert result.exit_code == 0, result.output
+        assert calls[0][0] == ["truncate", "-s", "20G", str(disk)]
+        assert "localhost/other:1" in calls[1][0]
+
+    def test_filesystem_from_config_and_option(self, tmp_path, monkeypatch):
+        config = tmp_path / "eib.yml"
+        config.write_text(INSTALL_CONFIG + "  filesystem: btrfs\n")
+        calls = []
+        monkeypatch.setattr(
+            "eib.run", lambda cmd, **kwargs: calls.append((cmd, kwargs))
+        )
+
+        assert self.invoke(config, "--dry-run").exit_code == 0
+        assert self.invoke(config, "--dry-run", "--filesystem", "xfs").exit_code == 0
+
+        for podman, fs in ((calls[1][0], "btrfs"), (calls[3][0], "xfs")):
+            assert podman[podman.index("--filesystem") + 1] == fs
+
+    def test_dry_run_reports_no_install(self, tmp_path, caplog):
+        config = tmp_path / "eib.yml"
+        config.write_text(INSTALL_CONFIG)
+
+        with caplog.at_level("INFO", logger="eib"):
+            result = self.invoke(config, "--dry-run")
+
+        assert result.exit_code == 0, result.output
+        assert "dry run: nothing was installed" in caplog.text
+        assert not (tmp_path / "out").exists()
+
+    def test_missing_size_exits_with_error(self, tmp_path, caplog):
+        config = tmp_path / "eib.yml"
+        config.write_text("container:\n  tag: t\n  disk: disk.raw\n")
+
+        with caplog.at_level("INFO", logger="eib"):
+            result = self.invoke(config)
+
+        assert result.exit_code == 1
+        assert "no container size" in caplog.text

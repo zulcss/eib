@@ -43,7 +43,12 @@ image:
   format: disk
 
 # Tag that `eib image import` gives the built OCI image in local
-# container storage. Optional; quote it if YAML would otherwise read it
-# as a number.
+# container storage, plus the path of a disk image (relative paths are
+# resolved against this file's directory), its size and the root
+# filesystem bootc formats it with (default: ext4). All optional; quote
+# any of them if YAML would otherwise read it as a number.
 container:
   tag: elxr-bianca:latest
+  disk: elxr-bianca.raw
+  size: 10G
+  filesystem: ext4

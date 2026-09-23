@@ -13,6 +13,7 @@ from eib import (
     resolve_entries,
     step_build,
     step_import,
+    step_install,
 )
 
 
@@ -214,6 +215,94 @@ def image_import(
             log.info("dry run: nothing was imported")
         else:
             log.info("done: imported %s as %s", oci_path, tag)
+
+    except EibError as exc:
+        log.error("error: %s", exc)
+        raise SystemExit(1) from exc
+    except KeyboardInterrupt:
+        log.error("interrupted")
+        raise SystemExit(130) from None
+
+
+@image.command(
+    "install",
+    context_settings={"help_option_names": ["-h", "--help"]},
+    help="install the imported bootc image onto a new disk image with "
+    "'bootc install to-disk', using the config's container.tag, "
+    "container.disk, container.size and container.filesystem",
+)
+@click.option(
+    "--config",
+    type=click.Path(path_type=Path),
+    required=True,
+    help="YAML config giving the container tag, disk and size (see config.yml)",
+)
+@click.option(
+    "--tag",
+    default=None,
+    help="image to install (overrides the config's container.tag)",
+)
+@click.option(
+    "--disk",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="disk image file to create (overrides the config's container.disk)",
+)
+@click.option(
+    "--size",
+    default=None,
+    help="size of the disk image, e.g. 10G (overrides the config's " "container.size)",
+)
+@click.option(
+    "--filesystem",
+    default=None,
+    help="root filesystem of the disk image, e.g. ext4 (overrides the "
+    "config's container.filesystem)",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="print the install commands without running them",
+)
+@click.option(
+    "-v",
+    "--verbose",
+    is_flag=True,
+    help="verbose logging",
+)
+def image_install(
+    config: Path,
+    tag: str | None,
+    disk: Path | None,
+    size: str | None,
+    filesystem: str | None,
+    dry_run: bool,
+    verbose: bool,
+) -> None:
+    logging.basicConfig(
+        level=logging.DEBUG if verbose else logging.INFO,
+        format="%(message)s",
+    )
+
+    try:
+        cfg = load_config(config)
+        tag = tag or cfg["container_tag"]
+        disk = disk or cfg["container_disk"]
+        size = size or cfg["container_size"]
+        filesystem = filesystem or cfg["container_filesystem"]
+        for value, key in ((tag, "tag"), (disk, "disk"), (size, "size")):
+            if not value:
+                raise EibError(
+                    f"no container {key}: set 'container.{key}' in {config} "
+                    f"or pass --{key}"
+                )
+
+        step_install(tag, disk, size, dry_run, filesystem=filesystem)
+
+        if dry_run:
+            log.info("dry run: nothing was installed")
+        else:
+            log.info("done: installed %s to %s", tag, disk)
 
     except EibError as exc:
         log.error("error: %s", exc)

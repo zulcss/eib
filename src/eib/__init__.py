@@ -100,7 +100,8 @@ MKOSI_FORMATS = (
 )
 DEFAULT_IMAGE_FORMAT = "disk"
 
-CONTAINER_KEYS = ("tag",)
+CONTAINER_KEYS = ("tag", "disk", "size", "filesystem")
+DEFAULT_CONTAINER_FILESYSTEM = "ext4"
 
 
 def _validate_section(
@@ -209,6 +210,10 @@ def _load_config_file(path: Path, seen: frozenset[Path]) -> tuple[
 
     image.update({key: str(value) for key, value in own_image.items()})
     container.update({key: str(value) for key, value in own_container.items()})
+    if "disk" in own_container:
+        # A relative disk image path is anchored at this file's directory,
+        # like any other path in the config.
+        container["disk"] = str(base_dir / container["disk"])
 
     return profiles, images, image, container
 
@@ -236,6 +241,9 @@ def load_config(path: Path) -> dict:
                                        # (default: disk)
         container:
           tag: elxr-bianca:latest      # container image tag
+          disk: elxr-bianca.raw        # disk image path
+          size: 10G                    # disk image size
+          filesystem: ext4             # root filesystem (default: ext4)
 
     'include' lists other config files (same shape, and itself may
     include further files) whose 'profiles'/'images' are merged in ahead
@@ -247,7 +255,9 @@ def load_config(path: Path) -> dict:
     resolves them once --mkosi-dir is known. 'image' (all keys optional)
     names, versions and sets the output format of the built image; a field
     set in the including file overrides the same field from an included
-    one. 'container' (its 'tag' optional) is merged the same way.
+    one. 'container' (its 'tag', 'disk', 'size' and 'filesystem' optional,
+    the filesystem defaulting to ext4) is merged the same way; a relative 'container.disk' path is resolved against the
+    directory of the config file that sets it.
     """
     profiles, images, image, container = _load_config_file(path, seen=frozenset())
 
@@ -258,6 +268,11 @@ def load_config(path: Path) -> dict:
         "image_version": image.get("version"),
         "image_format": image.get("format", DEFAULT_IMAGE_FORMAT),
         "container_tag": container.get("tag"),
+        "container_disk": (Path(container["disk"]) if "disk" in container else None),
+        "container_size": container.get("size"),
+        "container_filesystem": container.get(
+            "filesystem", DEFAULT_CONTAINER_FILESYSTEM
+        ),
         "base_dir": path.parent,
     }
 
@@ -407,22 +422,85 @@ def find_oci_output(output_dir: Path, since: float) -> Path:
     return candidates[0]
 
 
+def local_image_ref(tag: str) -> str:
+    """Qualify a tag without a registry (e.g. elxr-bianca:latest) as
+    localhost/<tag>, matching what 'podman build' does; skopeo and podman
+    would otherwise look it up under docker.io/library/."""
+    registry = tag.split("/")[0]
+    if "/" not in tag or not (
+        "." in registry or ":" in registry or registry == "localhost"
+    ):
+        return f"localhost/{tag}"
+    return tag
+
+
 def step_import(oci_path: Path, tag: str, dry_run: bool) -> None:
     """Copy an OCI image (an OCI-layout directory or an oci-archive
     tarball, as found by find_oci_output) into local container storage
     as tag, so podman can run it.
 
-    A tag without a registry (e.g. elxr-bianca:latest) is stored as
-    localhost/<tag>, matching what 'podman build' does; skopeo would
-    otherwise file it under docker.io/library/.
+    A tag without a registry is stored under localhost/ (see
+    local_image_ref).
     """
-    registry = tag.split("/")[0]
-    if "/" not in tag or not (
-        "." in registry or ":" in registry or registry == "localhost"
-    ):
-        tag = f"localhost/{tag}"
+    tag = local_image_ref(tag)
     transport = "oci" if oci_path.is_dir() else "oci-archive"
     run(
         ["skopeo", "copy", f"{transport}:{oci_path}", f"containers-storage:{tag}"],
+        dry_run=dry_run,
+    )
+
+
+def step_install(
+    tag: str,
+    disk: Path,
+    size: str,
+    dry_run: bool,
+    filesystem: str = DEFAULT_CONTAINER_FILESYSTEM,
+) -> None:
+    """Install the bootc container image tag (from local container
+    storage) onto a new disk image file at disk, of the given size (any
+    size 'truncate -s' accepts, e.g. 10G), with a root filesystem of the
+    given type (passed to bootc as --filesystem, e.g. ext4).
+
+    The file is created sparse with truncate, then the image's own bootc
+    writes to it via 'bootc install to-disk --via-loopback', run inside
+    the image with podman as bootc's docs describe. An existing disk is
+    never overwritten.
+    """
+    if disk.exists():
+        raise EibError(f"disk image already exists: {disk} (remove it first)")
+    disk = disk.absolute()
+    log.info("creating directory %s", disk.parent)
+    if not dry_run:
+        disk.parent.mkdir(parents=True, exist_ok=True)
+    run(["truncate", "-s", size, str(disk)], dry_run=dry_run)
+    run(
+        [
+            "podman",
+            "run",
+            "--rm",
+            "--privileged",
+            "--pid=host",
+            "--security-opt",
+            "label=type:unconfined_t",
+            "-e",
+            "RUST_LOG=debug",
+            "-v",
+            "/dev:/dev",
+            "-v",
+            "/var/lib/containers:/var/lib/containers",
+            "-v",
+            f"{disk.parent}:/output",
+            local_image_ref(tag),
+            "bootc",
+            "install",
+            "to-disk",
+            "--composefs-backend",
+            "--wipe",
+            "--filesystem",
+            filesystem,
+            "--via-loopback",
+            f"/output/{disk.name}",
+        ],
         dry_run=dry_run,
     )

@@ -21,6 +21,7 @@ from eib import (
     run,
     step_build,
     step_import,
+    step_install,
 )
 
 
@@ -312,6 +313,65 @@ class TestLoadConfig:
         config.write_text("include:\n  - common.yml\ncontainer:\n  tag: mine\n")
         cfg = load_config(config)
         assert cfg["container_tag"] == "mine"
+
+    def test_loads_container_disk_relative_to_config(self, tmp_path):
+        config = tmp_path / "eib.yml"
+        config.write_text("container:\n  disk: out/elxr-bianca.raw\n")
+        cfg = load_config(config)
+        assert cfg["container_disk"] == tmp_path / "out" / "elxr-bianca.raw"
+
+    def test_container_disk_absolute_path_kept(self, tmp_path):
+        config = tmp_path / "eib.yml"
+        config.write_text("container:\n  disk: /srv/elxr-bianca.raw\n")
+        cfg = load_config(config)
+        assert cfg["container_disk"] == Path("/srv/elxr-bianca.raw")
+
+    def test_container_disk_is_optional(self, tmp_path):
+        config = tmp_path / "eib.yml"
+        config.write_text("container:\n  tag: latest\n")
+        cfg = load_config(config)
+        assert cfg["container_disk"] is None
+
+    def test_loads_container_size(self, tmp_path):
+        config = tmp_path / "eib.yml"
+        config.write_text("container:\n  size: 10G\n")
+        cfg = load_config(config)
+        assert cfg["container_size"] == "10G"
+
+    def test_container_size_is_optional(self, tmp_path):
+        config = tmp_path / "eib.yml"
+        config.write_text("container:\n  tag: latest\n")
+        cfg = load_config(config)
+        assert cfg["container_size"] is None
+
+    def test_loads_container_filesystem(self, tmp_path):
+        config = tmp_path / "eib.yml"
+        config.write_text("container:\n  filesystem: xfs\n")
+        cfg = load_config(config)
+        assert cfg["container_filesystem"] == "xfs"
+
+    def test_container_filesystem_defaults_to_ext4(self, tmp_path):
+        config = tmp_path / "eib.yml"
+        config.write_text("container:\n  tag: latest\n")
+        cfg = load_config(config)
+        assert cfg["container_filesystem"] == "ext4"
+
+    def test_including_file_overrides_included_container_size(self, tmp_path):
+        common = tmp_path / "common.yml"
+        common.write_text("container:\n  size: 5G\n")
+        config = tmp_path / "eib.yml"
+        config.write_text("include:\n  - common.yml\ncontainer:\n  size: 10G\n")
+        cfg = load_config(config)
+        assert cfg["container_size"] == "10G"
+
+    def test_included_container_disk_resolves_against_included_file(self, tmp_path):
+        sub = tmp_path / "sub"
+        sub.mkdir()
+        (sub / "common.yml").write_text("container:\n  disk: disk.raw\n")
+        config = tmp_path / "eib.yml"
+        config.write_text("include:\n  - sub/common.yml\n")
+        cfg = load_config(config)
+        assert cfg["container_disk"] == sub / "disk.raw"
 
 
 class TestCopyInto:
@@ -663,3 +723,74 @@ class TestStepImport:
         step_import(tmp_path, tag, dry_run=True)
 
         assert calls[0][0][-1] == f"containers-storage:{stored}"
+
+
+class TestStepInstall:
+    def test_creates_disk_and_runs_bootc(self, tmp_path, monkeypatch):
+        calls = []
+        monkeypatch.setattr(
+            "eib.run", lambda cmd, **kwargs: calls.append((cmd, kwargs))
+        )
+        disk = tmp_path / "out" / "disk.raw"
+
+        step_install("elxr-bianca:latest", disk, "10G", dry_run=False)
+
+        assert (tmp_path / "out").is_dir()
+        assert calls[0] == (
+            ["truncate", "-s", "10G", str(disk)],
+            {"dry_run": False},
+        )
+        podman = calls[1][0]
+        assert podman[:2] == ["podman", "run"]
+        assert f"{tmp_path / 'out'}:/output" in podman
+        assert "localhost/elxr-bianca:latest" in podman
+        assert podman[-9:] == [
+            "bootc",
+            "install",
+            "to-disk",
+            "--composefs-backend",
+            "--wipe",
+            "--filesystem",
+            "ext4",
+            "--via-loopback",
+            "/output/disk.raw",
+        ]
+
+    def test_passes_filesystem_to_bootc(self, tmp_path, monkeypatch):
+        calls = []
+        monkeypatch.setattr(
+            "eib.run", lambda cmd, **kwargs: calls.append((cmd, kwargs))
+        )
+        disk = tmp_path / "disk.raw"
+
+        step_install("elxr-bianca:latest", disk, "10G", dry_run=False)
+        step_install("elxr-bianca:latest", disk, "10G", dry_run=False, filesystem="xfs")
+
+        for podman, fs in ((calls[1][0], "ext4"), (calls[3][0], "xfs")):
+            i = podman.index("--filesystem")
+            assert podman[i + 1] == fs
+
+    def test_dry_run_creates_nothing(self, tmp_path, monkeypatch):
+        calls = []
+        monkeypatch.setattr(
+            "eib.run", lambda cmd, **kwargs: calls.append((cmd, kwargs))
+        )
+        disk = tmp_path / "out" / "disk.raw"
+
+        step_install("elxr-bianca:latest", disk, "10G", dry_run=True)
+
+        assert not (tmp_path / "out").exists()
+        assert all(kwargs == {"dry_run": True} for _, kwargs in calls)
+
+    def test_existing_disk_raises(self, tmp_path, monkeypatch):
+        calls = []
+        monkeypatch.setattr(
+            "eib.run", lambda cmd, **kwargs: calls.append((cmd, kwargs))
+        )
+        disk = tmp_path / "disk.raw"
+        disk.write_text("old")
+
+        with pytest.raises(EibError, match="already exists"):
+            step_install("elxr-bianca:latest", disk, "10G", dry_run=False)
+        assert calls == []
+        assert disk.read_text() == "old"
