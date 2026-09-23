@@ -210,9 +210,11 @@ image's own bootc against it:
 ```
 podman run --rm --privileged --pid=host \
     --security-opt label=type:unconfined_t \
+    -e RUST_LOG=debug \
     -v /dev:/dev -v /var/lib/containers:/var/lib/containers \
     -v <disk dir>:/output \
-    localhost/<tag> bootc install to-disk --generic-image --via-loopback /output/<disk>
+    localhost/<tag> bootc install to-disk --composefs-backend --wipe \
+        --filesystem <filesystem> --via-loopback /output/<disk>
 ```
 
 The tag is qualified with `localhost/` the same way `eib image import`
