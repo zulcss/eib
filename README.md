@@ -50,6 +50,9 @@ image:
   format: disk                 # mkosi --format (default: disk)
 container:
   tag: elxr-bianca:latest      # container image tag
+  disk: elxr-bianca.raw        # disk image path
+  size: 10G                    # disk image size
+  filesystem: ext4             # root filesystem (default: ext4)
 ```
 
 | Key | Meaning |
@@ -58,14 +61,15 @@ container:
 | `profiles` | list copied to `<workspace>/mkosi.profiles/<name>` (see below) |
 | `images` | list copied to `<workspace>/mkosi.images/<name>` (see below) |
 | `image` | mapping with optional `name`, `version` and `format` of the built image, passed to mkosi as `--image-id`/`--image-version`/`--format` (no `version` &rarr; UTC build timestamp; no `format` &rarr; `disk`) |
-| `container` | mapping with an optional `tag`, used by `eib image import` as the imported image's name |
+| `container` | mapping with an optional `tag`, used by `eib image import` as the imported image's name, and an optional `disk` (path, relative to the config file) `size` (e.g. `10G`) and `filesystem` (default `ext4`) of the disk image `eib image install` creates |
 
 `image.version` must be a string (or an integer): quote it, since YAML
 reads an unquoted `1.10` as the number `1.1`. `image.format` must be one
 of mkosi's output formats: `addon`, `confext`, `cpio`, `directory`,
 `disk`, `esp`, `none`, `oci`, `portable`, `sysext`, `tar` or `uki`.
-Unknown `image` keys are an error. Likewise, `container.tag` must be a
-string, and unknown `container` keys are an error.
+Unknown `image` keys are an error. Likewise, `container.tag`,
+`container.disk`, `container.size` and `container.filesystem` must be strings, and unknown
+`container` keys are an error.
 
 Each `profiles`/`images` entry is either:
 
@@ -188,6 +192,47 @@ A tag without a registry (e.g. `elxr-bianca:latest`) is stored as
 
 Run it on the host (which needs `skopeo`), or through the container
 with `just import-image`, which mounts the host's image store into it.
+
+## Installing to a disk image
+
+Once a bootc image is in local container storage (e.g. after
+`eib image import`), `eib image install` writes it to a new disk image
+with bootc:
+
+```
+eib image install --config config.yml
+```
+
+It creates `container.disk` as a sparse file of `container.size` (with
+`truncate -s`, so any size it accepts, e.g. `10G`), then runs the
+image's own bootc against it:
+
+```
+podman run --rm --privileged --pid=host \
+    --security-opt label=type:unconfined_t \
+    -e RUST_LOG=debug \
+    -v /dev:/dev -v /var/lib/containers:/var/lib/containers \
+    -v <disk dir>:/output \
+    localhost/<tag> bootc install to-disk --composefs-backend --wipe \
+        --filesystem <filesystem> --via-loopback /output/<disk>
+```
+
+The tag is qualified with `localhost/` the same way `eib image import`
+stores it. It refuses to overwrite an existing disk image; remove it
+first to reinstall.
+
+| Flag | Meaning |
+|---|---|
+| `--config FILE` | YAML config giving `container.tag`, `container.disk`, `container.size` and `container.filesystem` (required) |
+| `--tag TAG` | image to install, overriding `container.tag` |
+| `--disk FILE` | disk image to create, overriding `container.disk` |
+| `--size SIZE` | disk image size, overriding `container.size` |
+| `--filesystem FS` | root filesystem (e.g. `ext4`, `xfs`, `btrfs`), overriding `container.filesystem` |
+| `--dry-run` | print the `truncate`/`podman` commands without running them |
+| `-v, --verbose` | verbose logging |
+
+Run it on the host as root: it needs rootful `podman`, and the image must
+include bootc.
 
 ## Notes
 
