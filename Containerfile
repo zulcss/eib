@@ -60,12 +60,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         tpm2-tools \
         efitools \
         openssl \
+        podman \
         jq \
         skopeo \
+        wget \
     && rm -rf /var/lib/apt/lists/*
 
 RUN pip install --break-system-packages \
         "git+https://gitlab.com/elxr/tools/d2o/mkosi.git@main"
+
+# Configure bootc
+COPY ./build_files /
+RUN wget \
+        -O /usr/share/keyrings/debian-bootc-keyring.gpg \
+        https://daemoncores.github.io/debian-bootc/gpg.key
+RUN apt-get update -y && \
+    apt-get install -y bootc
 
 COPY pyproject.toml README.md /src/
 COPY src /src/src
